@@ -1,23 +1,28 @@
 # Phase-0 基础 + 子系统A 可执行骨架
 
-这是平台审计后落地的第一块「可运行」资产：把 [SUBSYSTEM-A-MATERIALS-SPEC.md](../SUBSYSTEM-A-MATERIALS-SPEC.md) 里的验收标准 A-T1…A-T12 变成**能跑的测试**，并附上 Phase-0 的**建库迁移 SQL**。
+这是平台审计后落地的第一块「可运行」资产：把 [SUBSYSTEM-A-MATERIALS-SPEC.md](../SUBSYSTEM-A-MATERIALS-SPEC.md) 里的验收标准 A-T1…A-T13 变成**能跑的测试**，并附上 Phase-0 的**建库迁移 SQL**。两套测试：**内存版**（快、验证不变量逻辑）与 **SQL 版**（真 SQLite，验证迁移+事务）。
 
 ## 目录
 ```
 foundation/
 ├── migrations/
-│   └── 001_init.sql          # Phase-0 + 子系统A 建库脚本（SQLite/可平移 Postgres）
+│   ├── 001_init.sql          # Phase-0 + 子系统A 建库脚本（SQLite/可平移 Postgres）
+│   └── 002_multi_depot.sql   # 多仓支持（决策#3：仓库主数据/库存流水挂仓/单据指定仓）
 └── tests/
     ├── engine.js             # 领域引擎（内存仓库层，复刻 SQL 不变量）
-    └── engine.test.js        # A-T1…A-T12 验收测试（node:test，零依赖）
+    ├── engine.test.js        # 内存版 A-T1…A-T13（13 项，零依赖）
+    └── sql.test.js           # SQL 版验收测试（真 SQLite 跑迁移+事务，DR-T07 交付物）
 ```
 
 ## 运行测试
 ```bash
 cd foundation
-node --test tests/engine.test.js
+node --test tests/engine.test.js   # 内存版：13 pass / 0 fail
+node --test tests/sql.test.js      # SQL 版： 9 pass / 0 fail
 ```
-无需 `npm install`——只用 Node 内置 `node:test` + `node:crypto`。（当前 Node v24 已验证通过：12 pass / 0 fail）
+无需 `npm install`——只用 Node 内置 `node:test` + `node:crypto` + `node:sqlite`。（Node v24 已验证）
+
+**`sql.test.js` 同时是 DR-T04 / DR-T06 的 SQL 参考实现**：`withTx` / `deductOnce`（校验+扣减+流水同事务）/ `recordEvent`+`verifyChain`（哈希链）/ `withIdem`（幂等）照搬进服务端即可，别重新发明。
 
 ## 这套东西证明了什么
 | 测试 | 证明的控制点 | 对应规格缺陷 |
