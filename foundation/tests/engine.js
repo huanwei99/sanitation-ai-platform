@@ -19,7 +19,8 @@ function newDb() {
   return {
     employees: new Map(),        // id -> employee
     permissions: new Map(),      // employee_id -> perm
-    inventory: new Map(),        // id -> item
+    depots: new Map(),           // id -> depot（多仓：决策 #3）
+    inventory: new Map(),        // id -> item（每行归属唯一仓库）
     stock_movement: [],          // 追加台账
     distribution: new Map(),     // id -> dist
     distribution_recipient: [],  // 接收人
@@ -72,7 +73,7 @@ function applyMovement(db, { item_id, delta, reason, ref_type, ref_id, line_no, 
   }
   item.stock = newStock;
   item.updated_at = new Date().toISOString();
-  const mv = { item_id, delta, reason, ref_type, ref_id, line_no, qty_after: newStock, actor_id, occurred_at: new Date().toISOString() };
+  const mv = { item_id, depot_id: item.depot_id, delta, reason, ref_type, ref_id, line_no, qty_after: newStock, actor_id, occurred_at: new Date().toISOString() };
   db.stock_movement.push(mv);
   return mv;
 }
@@ -93,16 +94,31 @@ function seed(db) {
   db.permissions.set(11, { level: 3, scope: 'project', modules: { materials: ['view', 'edit', 'admin'] }, admin_level: 0 });
   db.permissions.set(4, { level: 1, scope: 'group', modules: 'ALL', admin_level: 3 });
 
-  const inv = (id, name, spec, category, unit, stock, minStock, cost) =>
-    db.inventory.set(id, { id, name, spec, category, unit, stock, min_stock: minStock, unit_cost: cost, is_rented: 0 });
-  inv('INV-001', '保洁手套', '乳胶加厚', 'consumable', '双', 500, 100, 250);
-  inv('INV-004', '工作服', '秋冬款带反光条', 'consumable', '套', 15, 20, 8500);
-  inv('INV-006', '机油', '15W-40 柴机油', 'consumable', '桶', 10, 5, 18000);
+  // 多仓：DP-001 总部仓 / DP-002 片区二仓（决策 #3）
+  db.depots.set('DP-001', { id: 'DP-001', name: '总部仓', is_active: 1 });
+  db.depots.set('DP-002', { id: 'DP-002', name: '片区二仓', is_active: 1 });
+
+  const inv = (id, name, spec, category, unit, stock, minStock, cost, depotId) =>
+    db.inventory.set(id, { id, name, spec, category, unit, stock, min_stock: minStock, unit_cost: cost, is_rented: 0, depot_id: depotId });
+  inv('INV-001', '保洁手套', '乳胶加厚', 'consumable', '双', 500, 100, 250, 'DP-001');
+  inv('INV-004', '工作服', '秋冬款带反光条', 'consumable', '套', 15, 20, 8500, 'DP-001');
+  inv('INV-006', '机油', '15W-40 柴机油', 'consumable', '桶', 10, 5, 18000, 'DP-001');
+  // 二仓同名物资独立行：隔离测试用（A-T13）——二仓只有 5 双手套
+  inv('INV-201', '保洁手套', '乳胶加厚', 'consumable', '双', 5, 10, 250, 'DP-002');
   return db;
 }
 
 // ---------- 发放（4步） ----------
-function createDistribution(db, { applicant_id, department, scope, scope_desc, total_people, distributor_id, lines, approval_id = null }) {
+function createDistribution(db, { applicant_id, department, scope, scope_desc, total_people, distributor_id, lines, approval_id = null, depot_id }) {
+  if (!depot_id) throw new DomainError('DEPOT_REQUIRED', '发放必须指定出库仓库（多仓）');
+  if (!db.depots.has(depot_id)) throw new DomainError('NOT_FOUND', `仓库不存在: ${depot_id}`);
+  for (const l of lines) {
+    const item = db.inventory.get(l.item_id);
+    if (!item) throw new DomainError('NOT_FOUND', `库存不存在: ${l.item_id}`);
+    if (item.depot_id !== depot_id) {
+      throw new DomainError('DEPOT_MISMATCH', `物资 ${l.item_id} 属于仓 ${item.depot_id}，不能从 ${depot_id} 出库`);
+    }
+  }
   const requireApproval = db.policy['distribution.require_approval'] === 'true';
   if (requireApproval && !approval_id) {
     // G3：默认策略下必须有审批单（此处只挂一个待审批引用；approve 时校验已完成）
@@ -114,7 +130,7 @@ function createDistribution(db, { applicant_id, department, scope, scope_desc, t
   const distId = nextId(db, 'MD');
   const dist = {
     id: distId, applicant_id, department, requested_at: new Date().toISOString(),
-    scope, scope_desc, total_people, distributor_id, approval_id,
+    scope, scope_desc, total_people, distributor_id, approval_id, depot_id,
     status: '待审批', current_step: 0, total_steps: 4,
   };
   db.distribution.set(distId, dist);
@@ -158,12 +174,15 @@ function completeDistributionStep(db, { dist_id, step_no, actor_id, idempotency_
 
     if (step_no === 1) {
       const lines = db.distribution_line.filter(l => l.distribution_id === dist_id);
-      // 先校验全部行库存（G2），再统一扣减（同一事务语义）
+      // 先校验全部行库存（G2），再统一扣减（同一事务语义）；并防御跨仓
       for (const l of lines) {
         const item = db.inventory.get(l.item_id);
+        if (item.depot_id !== d.depot_id) {
+          throw new DomainError('DEPOT_MISMATCH', `物资 ${l.item_id} 不在出库仓 ${d.depot_id}`);
+        }
         if (item.stock < l.qty) {
           throw new DomainError('STOCK_SHORTFALL',
-            `库存不足: ${l.item_id} 可用=${item.stock} 需求=${l.qty}`);
+            `库存不足（仓 ${d.depot_id}）: ${l.item_id} 可用=${item.stock} 需求=${l.qty}`);
         }
       }
       for (const l of lines) {
@@ -239,11 +258,20 @@ function signoff(db, { dist_id, actor_id, idempotency_key = null, captured_at = 
 }
 
 // ---------- 领取（2步，G6 同样扣库存） ----------
-function createRequisition(db, { applicant_id, department, urgency, req_type, reason, approver_id, lines, approval_id = null }) {
+function createRequisition(db, { applicant_id, department, urgency, req_type, reason, approver_id, lines, approval_id = null, depot_id }) {
+  if (!depot_id) throw new DomainError('DEPOT_REQUIRED', '领取必须指定出库仓库（多仓）');
+  if (!db.depots.has(depot_id)) throw new DomainError('NOT_FOUND', `仓库不存在: ${depot_id}`);
+  for (const l of lines) {
+    const item = db.inventory.get(l.item_id);
+    if (!item) throw new DomainError('NOT_FOUND', `库存不存在: ${l.item_id}`);
+    if (item.depot_id !== depot_id) {
+      throw new DomainError('DEPOT_MISMATCH', `物资 ${l.item_id} 属于仓 ${item.depot_id}，不能从 ${depot_id} 出库`);
+    }
+  }
   const reqId = nextId(db, 'MR');
   db.requisition.set(reqId, {
     id: reqId, applicant_id, department, requested_at: new Date().toISOString(),
-    urgency, req_type, reason, approver_id, approval_id,
+    urgency, req_type, reason, approver_id, approval_id, depot_id,
     status: '审批中', current_step: 0, total_steps: 2,
   });
   for (let i = 0; i < lines.length; i++) {
@@ -276,7 +304,8 @@ function completeRequisitionStep(db, { req_id, step_no, actor_id, idempotency_ke
       const lines = db.requisition_line.filter(l => l.requisition_id === req_id);
       for (const l of lines) {
         const item = db.inventory.get(l.item_id);
-        if (item.stock < l.qty) throw new DomainError('STOCK_SHORTFALL', `库存不足: ${l.item_id} 可用=${item.stock} 需求=${l.qty}`);
+        if (item.depot_id !== r.depot_id) throw new DomainError('DEPOT_MISMATCH', `物资 ${l.item_id} 不在出库仓 ${r.depot_id}`);
+        if (item.stock < l.qty) throw new DomainError('STOCK_SHORTFALL', `库存不足（仓 ${r.depot_id}）: ${l.item_id} 可用=${item.stock} 需求=${l.qty}`);
       }
       for (const l of lines) {
         applyMovement(db, { item_id: l.item_id, delta: -l.qty, reason: 'requisition_out', ref_type: 'requisition', ref_id: req_id, line_no: l.line_no, actor_id });
@@ -298,11 +327,19 @@ function completeRequisitionStep(db, { req_id, step_no, actor_id, idempotency_ke
 }
 
 // ---------- 入库 + 质检（A-T9） ----------
-function createInbound(db, { supplier, operator_id, lines, approval_id = null }) {
+function createInbound(db, { supplier, operator_id, lines, approval_id = null, depot_id = 'DP-001' }) {
+  if (!db.depots.has(depot_id)) throw new DomainError('NOT_FOUND', `仓库不存在: ${depot_id}`);
+  for (const l of lines) {
+    const item = db.inventory.get(l.item_id);
+    if (!item) throw new DomainError('NOT_FOUND', `库存不存在: ${l.item_id}`);
+    if (item.depot_id !== depot_id) {
+      throw new DomainError('DEPOT_MISMATCH', `物资 ${l.item_id} 属于仓 ${item.depot_id}，不能入到 ${depot_id}`);
+    }
+  }
   const inId = nextId(db, 'IN');
   const total = lines.reduce((s, l) => s + l.qty * l.unit_cost, 0);
   db.inbound = db.inbound || new Map();
-  db.inbound.set(inId, { id: inId, date: new Date().toISOString().slice(0, 10), type: '采购入库', supplier, total_cost: total, operator_id, status: '待质检', approval_id, lines });
+  db.inbound.set(inId, { id: inId, date: new Date().toISOString().slice(0, 10), type: '采购入库', supplier, total_cost: total, operator_id, status: '待质检', approval_id, lines, depot_id });
   return inId;
 }
 function recordQuality(db, { inbound_id, result, inspector_id }) {

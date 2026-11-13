@@ -5,10 +5,10 @@ const assert = require('node:assert/strict');
 const E = require('./engine.js');
 
 // 造一个已批准、含接收人的发放单，便于测 step1/3/4
-function makeApprovedDist(db, { total_people = 40, lines, recipients, approval_id = 'WF-1' }) {
+function makeApprovedDist(db, { total_people = 40, lines, recipients, approval_id = 'WF-1', depot_id = 'DP-001' }) {
   const distId = E.createDistribution(db, {
     applicant_id: 4, department: '综合管理部', scope: 'all', scope_desc: '全体一线',
-    total_people, distributor_id: 11, lines, approval_id,
+    total_people, distributor_id: 11, lines, approval_id, depot_id,
   });
   E.addRecipients(db, distId, recipients);
   E.approveDistribution(db, { dist_id: distId, actor_id: 4, approval_completed: true });
@@ -53,6 +53,7 @@ test('A-T3 审批前置（G3）', () => {
     applicant_id: 4, department: 'x', scope: 'all', scope_desc: 'x',
     total_people: 1, distributor_id: 11, lines: [{ item_id: 'INV-001', per_person_qty: 1 }],
     approval_id: null, // 无审批
+    depot_id: 'DP-001',
   });
   assert.throws(
     () => E.approveDistribution(db, { dist_id: distId, actor_id: 4, approval_completed: false }),
@@ -147,6 +148,7 @@ test('A-T8 领取2步（G6 扣库存）', () => {
   const reqId = E.createRequisition(db, {
     applicant_id: 7, department: '机械作业部', urgency: '较急-3日内需要', req_type: '设备维修配件',
     reason: '换机油', approver_id: 4, lines: [{ item_id: 'INV-006', qty: 3 }], approval_id: 'WF-2',
+    depot_id: 'DP-001',
   });
   E.approveRequisition(db, { req_id: reqId, actor_id: 4, approval_completed: true });
   E.completeRequisitionStep(db, { req_id: reqId, step_no: 1, actor_id: 5 });
@@ -199,10 +201,46 @@ test('A-T12 持久化（重启不丢，G4）—— 内存引擎以“新DB重建
   const distId = E.createDistribution(db1, {
     applicant_id: 4, department: 'x', scope: 'all', scope_desc: 'x', total_people: 40,
     distributor_id: 11, lines: [{ item_id: 'INV-001', per_person_qty: 2 }], approval_id: 'WF-9',
+    depot_id: 'DP-001',
   });
   E.addRecipients(db1, distId, [{ employee_id: 13 }]);
   E.approveDistribution(db1, { dist_id: distId, actor_id: 4, approval_completed: true });
   // 断言：单据与状态在“同一 db 实例生命周期内”可查（SQLite 落地后跨重启可查）
   assert.equal(db1.distribution.get(distId).status, '已批准');
   assert.equal(db1.inventory.get('INV-001').stock, 500); // 尚未出库，库存未动
+});
+
+test('A-T13 多仓隔离（决策 #3）', () => {
+  const db = E.seed(E.newDb());
+  // ① 跨仓出库：从 DP-002 发 DP-001 的 INV-001 → 创建即拒绝
+  assert.throws(
+    () => E.createDistribution(db, {
+      applicant_id: 4, department: 'x', scope: 'all', scope_desc: 'x', total_people: 1,
+      distributor_id: 11, lines: [{ item_id: 'INV-001', per_person_qty: 1 }],
+      approval_id: 'WF-3', depot_id: 'DP-002',
+    }),
+    /DEPOT_MISMATCH|属于仓/
+  );
+  // ② 仓间库存隔离：二仓 INV-201 只有 5 双，领 20 → 拒绝；
+  //    即使总部仓有 500 双同款手套也不能救场
+  const reqId = E.createRequisition(db, {
+    applicant_id: 13, department: '人工作业部', urgency: '一般-日常补充', req_type: '日常消耗补充',
+    reason: '二仓补充', approver_id: 4, lines: [{ item_id: 'INV-201', qty: 20 }],
+    approval_id: 'WF-4', depot_id: 'DP-002',
+  });
+  E.approveRequisition(db, { req_id: reqId, actor_id: 4, approval_completed: true });
+  assert.throws(
+    () => E.completeRequisitionStep(db, { req_id: reqId, step_no: 1, actor_id: 5 }),
+    /库存不足（仓 DP-002）/
+  );
+  assert.equal(db.inventory.get('INV-201').stock, 5);   // 二仓未扣
+  assert.equal(db.inventory.get('INV-001').stock, 500); // 总部仓未动
+  // ③ 流水按仓记账：总部仓出库后，流水带 depot_id
+  const distId = makeApprovedDist(db, {
+    total_people: 40, lines: [{ item_id: 'INV-001', per_person_qty: 2 }],
+    recipients: [{ employee_id: 13 }], depot_id: 'DP-001',
+  });
+  E.completeDistributionStep(db, { dist_id: distId, step_no: 1, actor_id: 5 });
+  const mv = db.stock_movement.find(m => m.ref_id === distId);
+  assert.equal(mv.depot_id, 'DP-001');
 });

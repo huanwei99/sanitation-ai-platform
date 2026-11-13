@@ -40,9 +40,14 @@ node --test tests/engine.test.js
 落地时把这些校验搬进 SQL 事务（`applyMovement` → 一个 serializable 事务里「校验+扣减+写流水」）即可。
 **先跑测试证明逻辑正确，再落到 SQL** —— 这是验证过的路径，不是凭空设计。
 
-## 尚需你决策的开放项（见规格 §10）
-1. 审批是否强制前置（当前默认 `distribution.require_approval=true`，在 `org_policy` 表可配）
-2. 一线是否有手机+账号（A-T5 的 self-only 依赖此；否则需仓库平板「按人 PIN」兜底）
-3. 单仓 vs 多仓（当前单仓；多仓需给 `inventory_item` 加 `location_id`）
-4. 目标客群与付费意愿（整个立项最大的未验证假设，需 2–3 家真实项目公司访谈）
-5. 路线图负责人（统一路线图目前只锚定依赖，未锚定日期，就等这个）
+## 已定决策（2026-11-13，全部落码）
+
+| # | 决策 | 结论 | 落地位置 |
+|---|---|---|---|
+| 1 | 审批是否强制前置 | **是**，强制 | `org_policy.distribution.require_approval='true'`（001/002 SQL）；A-T3 测试锁定 |
+| 2 | 一线是否有手机+账号 | **是**，有 | `signoff.self_only='true'` 维持；A-T5 测试锁定（无需 PIN 兜底） |
+| 3 | 单仓还是多仓 | **多仓** | `migrations/002_multi_depot.sql`（depot 表 + 库存/流水/单据挂仓）；引擎按仓校验隔离；**A-T13** 测试锁定（跨仓出库拒绝、仓间库存隔离、流水按仓记账） |
+| 4 | 目标客群与付费 | **有付费买家，免费试用先行** | 进入执行计划的 GTM 工作流（见 ROADMAP-EXECUTION-PLAN.md：试用→转化漏斗） |
+| 5 | 路线图负责人 | **Daniel** | 执行计划日期与决策点归 Daniel 拍板（见 ROADMAP-EXECUTION-PLAN.md） |
+
+测试基线：`node --test tests/engine.test.js` → **13 pass / 0 fail**（新增 A-T13 多仓隔离）。
