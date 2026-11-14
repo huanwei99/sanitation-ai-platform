@@ -1,0 +1,45 @@
+# DR-T01 — Caddy 同源反代配置
+# 目标:同源部署,消除 CORS;Caddy 托管静态页 + 反代 /api/* → Fastify
+# 架构依据:PHASE0-BACKEND-RBAC-ARCHITECTURE.md §2
+#
+# 启动: caddy run --config Caddyfile
+# 验收: 经 Caddy 访问 /healthz 返回 200;访问页面正常
+
+# ---- 开发/试点:纯 HTTP(内网 LAN,无需 TLS) ----
+# 试点环境为锁定式政务/国企内网,Phase-0 §10-2 明确 LAN-only。
+# 若需 HTTPS,把 :8790 换成域名,Caddy 会自动签发内部 CA 证书。
+
+:8790 {
+	# API 反代到 Fastify(server.js 默认 :8791)
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8791
+	}
+
+	# 健康检查同样代理(便于外部探活)
+	handle /healthz {
+		reverse_proxy 127.0.0.1:8791
+	}
+
+	# 其余请求 → 静态文件(原型 index.html / mobile.html / js / css)
+	handle {
+		root * ../
+		try_files {path} {path}/ /index.html
+		file_server
+	}
+
+	# 基础安全头(LAN 试点够用,不引入复杂 CSP)
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+		-Server
+	}
+
+	# gzip/zstd 压缩
+	encode zstd gzip
+
+	log {
+		output file ./caddy-access.log
+		format console
+	}
+}

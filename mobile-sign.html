@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>环卫平台 · 签收</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+         background:#f5f6fa; color:#222; min-height:100vh; }
+  .header { background:#1a73e8; color:#fff; padding:16px 20px;
+            display:flex; justify-content:space-between; align-items:center; }
+  .header h1 { font-size:18px; }
+  .header .user { font-size:13px; opacity:0.9; }
+  .header .btn-logout { background:rgba(255,255,255,0.2); border:none; color:#fff;
+                         padding:6px 12px; border-radius:4px; font-size:12px; cursor:pointer; }
+  .container { padding:16px; max-width:480px; margin:0 auto; }
+  .card { background:#fff; border-radius:12px; padding:16px; margin-bottom:12px;
+          box-shadow:0 1px 3px rgba(0,0,0,0.08); }
+  .card .title { font-weight:600; font-size:15px; margin-bottom:8px; }
+  .card .meta { font-size:13px; color:#666; line-height:1.6; }
+  .card .meta span { display:inline-block; margin-right:16px; }
+  .btn { display:inline-block; padding:10px 20px; border-radius:6px; border:none;
+         font-size:14px; cursor:pointer; font-weight:500; }
+  .btn-primary { background:#1a73e8; color:#fff; width:100%; }
+  .btn-primary:disabled { background:#ccc; cursor:not-allowed; }
+  .btn-success { background:#34a853; color:#fff; width:100%; margin-top:12px; }
+  .empty { text-align:center; color:#999; padding:60px 20px; font-size:14px; }
+  .toast { position:fixed; bottom:80px; left:50%; transform:translateX(-50%);
+           background:rgba(0,0,0,0.75); color:#fff; padding:10px 20px; border-radius:6px;
+           font-size:13px; max-width:80%; text-align:center; opacity:0; transition:opacity 0.3s;
+           pointer-events:none; z-index:1000; }
+  .toast.show { opacity:1; }
+  /* Login */
+  .login-wrap { max-width:360px; margin:60px auto; padding:0 20px; }
+  .login-wrap h2 { text-align:center; margin-bottom:24px; color:#1a73e8; font-size:22px; }
+  .form-group { margin-bottom:16px; }
+  .form-group label { display:block; font-size:13px; color:#555; margin-bottom:6px; }
+  .form-group input { width:100%; padding:12px; border:1px solid #ddd; border-radius:6px;
+                       font-size:15px; }
+  .form-group input:focus { outline:none; border-color:#1a73e8; }
+  .error-msg { color:#ea4335; font-size:13px; margin-top:8px; display:none; }
+</style>
+</head>
+<body>
+
+<!-- 登录视图 -->
+<div id="view-login">
+  <div class="login-wrap">
+    <h2>环卫平台 · 签收</h2>
+    <div class="card">
+      <div class="form-group">
+        <label>工号</label>
+        <input id="login-account" type="text" placeholder="请输入工号" autocomplete="username">
+      </div>
+      <div class="form-group">
+        <label>密码</label>
+        <input id="login-password" type="password" placeholder="请输入密码" autocomplete="current-password">
+      </div>
+      <div class="error-msg" id="login-error"></div>
+      <button class="btn btn-primary" id="btn-login">登录</button>
+    </div>
+  </div>
+</div>
+
+<!-- 签收视图 -->
+<div id="view-main" style="display:none;">
+  <div class="header">
+    <div>
+      <h1>待签收</h1>
+      <div class="user" id="user-info"></div>
+    </div>
+    <button class="btn-logout" id="btn-logout">退出</button>
+  </div>
+  <div class="container" id="pending-list"></div>
+  <div class="empty" id="empty-msg" style="display:none;">暂无待签收单据</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  'use strict';
+  var $ = function(id){ return document.getElementById(id); };
+  var state = { account: '', name: '' };
+
+  function toast(msg) {
+    var t = $('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(function(){ t.classList.remove('show'); }, 2200);
+  }
+
+  // ---- 登录 ----
+  $('btn-login').addEventListener('click', doLogin);
+  $('login-password').addEventListener('keydown', function(e){ if(e.key==='Enter') doLogin(); });
+
+  function doLogin() {
+    var account = $('login-account').value.trim();
+    var password = $('login-password').value;
+    var errEl = $('login-error');
+    errEl.style.display = 'none';
+    if (!account || !password) {
+      errEl.textContent = '请填写工号和密码';
+      errEl.style.display = 'block';
+      return;
+    }
+    $('btn-login').disabled = true;
+    $('btn-login').textContent = '登录中…';
+    fetch('/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ account: account, password: password })
+    })
+    .then(function(r){ return r.json().then(function(b){ return { ok: r.ok, body: b }; }); })
+    .then(function(res){
+      if (!res.ok) {
+        errEl.textContent = res.body.error || '登录失败';
+        errEl.style.display = 'block';
+        return;
+      }
+      state.account = account;
+      state.name = (res.body.employee && res.body.employee.name) || account;
+      localStorage.setItem('sign_account', account);
+      showMain();
+    })
+    .catch(function(e){ errEl.textContent = '网络错误: ' + e.message; errEl.style.display='block'; })
+    .finally(function(){ $('btn-login').disabled=false; $('btn-login').textContent='登录'; });
+  }
+
+  // ---- 退出 ----
+  $('btn-logout').addEventListener('click', function(){
+    fetch('/auth/logout', { method:'POST', credentials:'same-origin' })
+      .then(function(){ showLogin(); });
+  });
+
+  // ---- 视图切换 ----
+  function showLogin(){ $('view-login').style.display='block'; $('view-main').style.display='none'; }
+  function showMain(){
+    $('view-login').style.display='none';
+    $('view-main').style.display='block';
+    $('user-info').textContent = state.name + ' (' + state.account + ')';
+    loadPending();
+  }
+
+  // ---- 加载待办 ----
+  function loadPending() {
+    fetch('/distribution/my/pending', { credentials:'same-origin' })
+      .then(function(r){ return r.json(); })
+      .then(function(b){
+        var list = $('pending-list');
+        list.innerHTML = '';
+        var items = b.items || [];
+        if (items.length === 0) {
+          $('empty-msg').style.display = 'block';
+          return;
+        }
+        $('empty-msg').style.display = 'none';
+        items.forEach(function(it){
+          var card = document.createElement('div');
+          card.className = 'card';
+          card.innerHTML =
+            '<div class="title">' + esc(it.id) + '</div>' +
+            '<div class="meta">' +
+              '<span>覆盖单位: ' + esc(it.units || '-') + '</span>' +
+              '<span>人数: ' + esc(it.people_count != null ? it.people_count : '-') + '</span>' +
+              '<span>仓库: ' + esc(it.depot_id || '-') + '</span>' +
+            '</div>';
+          var btn = document.createElement('button');
+          btn.className = 'btn btn-success';
+          btn.textContent = '确认签收';
+          btn.addEventListener('click', function(){ doReceive(it.id, btn); });
+          card.appendChild(btn);
+          list.appendChild(card);
+        });
+      })
+      .catch(function(e){ toast('加载失败: ' + e.message); });
+  }
+
+  // ---- 签收 ----
+  function doReceive(id, btn) {
+    btn.disabled = true;
+    btn.textContent = '签收中…';
+    fetch('/distribution/' + id + '/receive', {
+      method:'POST', credentials:'same-origin'
+    })
+    .then(function(r){ return r.json().then(function(b){ return { ok:r.ok, status:r.status, body:b }; }); })
+    .then(function(res){
+      if (res.ok) {
+        toast('签收成功: ' + id);
+        loadPending();
+      } else {
+        var msg = res.body.error || ('HTTP ' + res.status);
+        toast('签收失败: ' + msg);
+        btn.disabled = false;
+        btn.textContent = '确认签收';
+      }
+    })
+    .catch(function(e){ toast('网络错误: ' + e.message); btn.disabled=false; btn.textContent='确认签收'; });
+  }
+
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+
+  // ---- 启动:尝试自动恢复会话 ----
+  (function init(){
+    var remembered = localStorage.getItem('sign_account');
+    if (remembered) $('login-account').value = remembered;
+    // 探测会话:调 /auth/me
+    fetch('/auth/me', { credentials:'same-origin' })
+      .then(function(r){
+        if (r.ok) return r.json().then(function(b){
+          state.account = (b.employee && b.employee.account) || '';
+          state.name = (b.employee && b.employee.name) || state.account;
+          showMain();
+        });
+        showLogin();
+      })
+      .catch(function(){ showLogin(); });
+  })();
+})();
+</script>
+</body>
+</html>

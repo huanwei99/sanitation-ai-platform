@@ -1,0 +1,25 @@
+{
+  "name": "sanitation-platform-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DR-T01 服务骨架:Fastify + /healthz + Caddy 同源反代",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^10.0.0",
+    "bcryptjs": "^2.4.3",
+    "fastify": "^5.0.0"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^11.0.0"
+  },
+  "comment": "SQLite 后端优先用 node:sqlite(Node 22.5+ 内置,零编译);仅当 Node < 22.5 时才装 better-sqlite3(需 VS Build Tools 编译)。"
+}

@@ -1,0 +1,40 @@
+# CI — P0-T06:PR 自动跑 node --test
+# 跑两套测试:server(SQLite 数据层+发放链+审计+签收,需 Node 22.5+ 内置 node:sqlite)
+#           foundation/tests(内存版 A-T1..A-T13,无需依赖)
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      # ---- server 测试(需 node:sqlite) ----
+      - name: Install server deps
+        working-directory: server
+        run: npm install
+
+      - name: Run server tests
+        working-directory: server
+        run: npm test
+
+      # ---- foundation 内存版测试(无需依赖) ----
+      - name: Run foundation engine tests
+        working-directory: foundation/tests
+        run: node --test engine.test.js

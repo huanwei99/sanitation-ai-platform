@@ -1,0 +1,26 @@
+# 依赖
+node_modules/
+server/node_modules/
+
+# SQLite 数据库(运行时数据,不入库)
+server/data/*.db
+server/data/*.db-journal
+server/data/*.db-wal
+server/data/*.db-shm
+*.db.bak
+
+# 日志
+*.log
+npm-debug.log*
+
+# 环境变量(含密钥)
+.env
+.env.local
+
+# 临时/测试产物
+tmp/
+*.tmp
+
+# OS
+Thumbs.db
+.DS_Store
