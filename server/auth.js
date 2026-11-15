@@ -257,6 +257,50 @@ async function registerAuthRoutes(app, opts = {}) {
     };
     return req.principal;
   });
+
+  // ---- POST /auth/unlock(管理员解锁被锁账号,C-2②) ----
+  // 必须在 app.decorate('authenticate') 之后注册,否则 preValidation 引用未定义
+  // 权限:admin_level >= 1(与 canApprove/canViewAudit 同口径)
+  // 不进 chain_event(账号管理,非发放链)
+  app.post('/auth/unlock', { preValidation: [app.authenticate] }, async (req, reply) => {
+    const body = req.body || {};
+    const targetId = Number(body.employee_id);
+    if (!targetId || !Number.isInteger(targetId)) {
+      return reply.code(400).send({ ok: false, error: '需要 employee_id' });
+    }
+    const reason = body.reason || null;    // 可选(拍板结论:默认可选)
+
+    // 权限:请求者 admin_level >= 1
+    const p = app.db.prepare(
+      'SELECT admin_level FROM permissions WHERE employee_id = ?'
+    ).get(req.principal.employee_id);
+    if (!p || p.admin_level < 1) {
+      return reply.code(403).send({ ok: false, error: '需要管理员权限(admin_level>=1)' });
+    }
+
+    // 目标必须已锁定
+    const target = app.db.prepare(
+      'SELECT employee_id, locked_at FROM employees WHERE employee_id = ?'
+    ).get(targetId);
+    if (!target) return reply.code(404).send({ ok: false, error: '目标账号不存在' });
+    if (!target.locked_at) {
+      return reply.code(409).send({ ok: false, error: '账号未锁定,无需解锁' });
+    }
+
+    // 解锁:清零失败计数 + 置 locked_at=NULL
+    app.db.prepare(
+      'UPDATE employees SET failed_attempts = 0, locked_at = NULL WHERE employee_id = ?'
+    ).run(targetId);
+
+    // 审计日志(event 枚举预留 unlock;列名 actor_id)
+    const operatorId = req.principal.employee_id;
+    app.db.prepare(
+      `INSERT INTO account_lock_log (employee_id, event, actor_id, reason)
+       VALUES (?, 'unlock', ?, ?)`
+    ).run(targetId, operatorId, reason);
+
+    return reply.send({ ok: true, employee_id: targetId, unlocked_by: operatorId });
+  });
 }
 
 // 便捷函数:种测试/初始账号(哈希后写入 employees + permissions)

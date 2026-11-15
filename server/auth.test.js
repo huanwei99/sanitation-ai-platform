@@ -57,6 +57,25 @@ async function buildTestApp() {
     department: '一线作业',
     permissions: null   // 无权限记录 → me 返回 permissions: null
   });
+  // C-2② 解锁测试需要:管理员(admin_level≥1) + 可锁定的目标账号
+  await seedAccount(app.db, {
+    employee_id: 2001,
+    account: 'ADMIN2001',
+    password: 'AdminPwd@2024',
+    name: '管理员-王',
+    position: '系统管理员',
+    department: '管理部',
+    permissions: { mode: 'manual', level: 5, scope: 'all', modules: { inventory: ['view','edit','issue','approve'] }, admin_level: 2 }
+  });
+  await seedAccount(app.db, {
+    employee_id: 1003,
+    account: 'EMP1003',
+    password: 'LockPwd@2024',
+    name: '一线-赵',
+    position: '保洁员',
+    department: '一线作业',
+    permissions: null
+  });
 
   return { app, dbPath: p };
 }
@@ -317,6 +336,110 @@ test('DR-T03-06: change-password 新旧密码相同应拒绝(C-2①)', async () 
       payload: { account: 'EMP1001', password: 'TestPwd@2024' }
     });
     assert.equal(reLogin.statusCode, 200, '拒绝改密后原密码应仍有效');
+  } finally {
+    await cleanup(app, dbPath);
+  }
+});
+
+// ---- C-2② 管理员解锁端点 ----
+
+test('DR-T03-07: 管理员解锁被锁账号成功,写 account_lock_log(C-2②)', async () => {
+  const { app, dbPath } = await buildTestApp();
+  try {
+    const db = app.db;
+
+    // 先把 EMP1003 锁死(直接置 locked_at)
+    db.prepare('UPDATE employees SET failed_attempts = ?, locked_at = ? WHERE employee_id = 1003')
+      .run(MAX_FAILED, new Date().toISOString());
+
+    // 管理员登录
+    const adminLogin = await app.inject({
+      method: 'POST', url: '/auth/login',
+      payload: { account: 'ADMIN2001', password: 'AdminPwd@2024' }
+    });
+    assert.equal(adminLogin.statusCode, 200);
+    const adminToken = adminLogin.headers['set-cookie'].match(/sid=([^;]+)/)[1];
+
+    // 解锁
+    const res = await app.inject({
+      method: 'POST', url: '/auth/unlock',
+      headers: { cookie: `sid=${adminToken}` },
+      payload: { employee_id: 1003, reason: '演练误锁,恢复账号' }
+    });
+    assert.equal(res.statusCode, 200, '管理员解锁应 200');
+    assert.equal(res.json().ok, true);
+    assert.equal(res.json().employee_id, 1003);
+
+    // 验证 employees:locked_at=NULL, failed_attempts=0
+    const emp = db.prepare('SELECT failed_attempts, locked_at FROM employees WHERE employee_id = 1003').get();
+    assert.equal(emp.failed_attempts, 0, 'failed_attempts 应清零');
+    assert.equal(emp.locked_at, null, 'locked_at 应置 NULL');
+
+    // 验证 account_lock_log 有 unlock 事件
+    const log = db.prepare("SELECT * FROM account_lock_log WHERE employee_id = 1003 AND event = 'unlock'").get();
+    assert.ok(log, 'account_lock_log 应有 unlock 事件');
+    assert.equal(log.actor_id, 2001, '解锁操作者应为管理员 2001');
+    assert.equal(log.reason, '演练误锁,恢复账号');
+
+    // 解锁后账号可登录
+    const reLogin = await app.inject({
+      method: 'POST', url: '/auth/login',
+      payload: { account: 'EMP1003', password: 'LockPwd@2024' }
+    });
+    assert.equal(reLogin.statusCode, 200, '解锁后账号应能登录');
+  } finally {
+    await cleanup(app, dbPath);
+  }
+});
+
+test('DR-T03-08: 非管理员调用 /auth/unlock 返回 403(C-2②)', async () => {
+  const { app, dbPath } = await buildTestApp();
+  try {
+    const db = app.db;
+    db.prepare('UPDATE employees SET failed_attempts = ?, locked_at = ? WHERE employee_id = 1003')
+      .run(MAX_FAILED, new Date().toISOString());
+
+    // EMP1001 是 admin_level=0,无解锁权
+    const loginRes = await app.inject({
+      method: 'POST', url: '/auth/login',
+      payload: { account: 'EMP1001', password: 'TestPwd@2024' }
+    });
+    const token = loginRes.headers['set-cookie'].match(/sid=([^;]+)/)[1];
+
+    const res = await app.inject({
+      method: 'POST', url: '/auth/unlock',
+      headers: { cookie: `sid=${token}` },
+      payload: { employee_id: 1003 }
+    });
+    assert.equal(res.statusCode, 403, '非管理员应 403');
+    assert.match(res.json().error, /管理员/);
+
+    // 目标账号仍锁定
+    const emp = db.prepare('SELECT locked_at FROM employees WHERE employee_id = 1003').get();
+    assert.ok(emp.locked_at, '403 后目标应保持锁定');
+  } finally {
+    await cleanup(app, dbPath);
+  }
+});
+
+test('DR-T03-09: 解锁未锁定账号返回 409(C-2②)', async () => {
+  const { app, dbPath } = await buildTestApp();
+  try {
+    // 管理员登录
+    const adminLogin = await app.inject({
+      method: 'POST', url: '/auth/login',
+      payload: { account: 'ADMIN2001', password: 'AdminPwd@2024' }
+    });
+    const adminToken = adminLogin.headers['set-cookie'].match(/sid=([^;]+)/)[1];
+
+    // EMP1001 未锁定
+    const res = await app.inject({
+      method: 'POST', url: '/auth/unlock',
+      headers: { cookie: `sid=${adminToken}` },
+      payload: { employee_id: 1001 }
+    });
+    assert.equal(res.statusCode, 409, '未锁定账号应 409');
+    assert.match(res.json().error, /未锁定/);
   } finally {
     await cleanup(app, dbPath);
   }
