@@ -292,3 +292,32 @@ test('DR-T03-05: change-password 首登强制改密流程', async () => {
     await cleanup(app, dbPath);
   }
 });
+
+test('DR-T03-06: change-password 新旧密码相同应拒绝(C-2①)', async () => {
+  const { app, dbPath } = await buildTestApp();
+  try {
+    const loginRes = await app.inject({
+      method: 'POST', url: '/auth/login',
+      payload: { account: 'EMP1001', password: 'TestPwd@2024' }
+    });
+    const token = loginRes.headers['set-cookie'].match(/sid=([^;]+)/)[1];
+
+    // 新密码 = 原密码 → 拒绝
+    const resSame = await app.inject({
+      method: 'POST', url: '/auth/change-password',
+      headers: { cookie: `sid=${token}` },
+      payload: { old_password: 'TestPwd@2024', new_password: 'TestPwd@2024' }
+    });
+    assert.equal(resSame.statusCode, 400, '新旧密码相同应 400');
+    assert.match(resSame.json().error, /相同/);
+
+    // 密码未被改(仍能用原密码登录)
+    const reLogin = await app.inject({
+      method: 'POST', url: '/auth/login',
+      payload: { account: 'EMP1001', password: 'TestPwd@2024' }
+    });
+    assert.equal(reLogin.statusCode, 200, '拒绝改密后原密码应仍有效');
+  } finally {
+    await cleanup(app, dbPath);
+  }
+});

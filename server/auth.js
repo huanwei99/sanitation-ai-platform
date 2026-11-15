@@ -220,6 +220,10 @@ async function registerAuthRoutes(app, opts = {}) {
     if (new_password === 'Aa@123456') {
       return reply.code(400).send({ ok: false, error: '新密码不能与默认密码相同' });
     }
+    // C-2①: 禁止新旧密码相同(原密码已验证即当前密码,明文比较即可)
+    if (new_password === old_password) {
+      return reply.code(400).send({ ok: false, error: '新密码不能与原密码相同' });
+    }
     const emp = app.db.prepare(
       'SELECT password_hash FROM employees WHERE employee_id = ?'
     ).get(sess.employee_id);
