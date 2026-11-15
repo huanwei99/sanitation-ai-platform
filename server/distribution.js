@@ -45,6 +45,37 @@ function canDistribute(db, employeeId) {
   return false;
 }
 
+// 审批权:admin_level >= 1,或发放模块带 approve/ALL(A-2:此前审批路由无任何权限校验)
+function canApprove(db, employeeId) {
+  const p = db.prepare('SELECT level, modules, admin_level FROM permissions WHERE employee_id = ?').get(employeeId);
+  if (!p) return false;
+  if (p.admin_level >= 1) return true;
+  let mods = {};
+  try { mods = JSON.parse(p.modules || '{}'); } catch { mods = {}; }
+  const d = mods.distribution;
+  return Array.isArray(d) && (d.includes('approve') || d.includes('ALL'));
+}
+
+// 单据可见性:申请人本人 / 接收人池中 / 有发放操作权(B-2:链查询此前对任何登录人开放)
+function canViewDistribution(db, employeeId, distId) {
+  if (canDistribute(db, employeeId)) return true;
+  const d = db.prepare('SELECT applicant_id FROM distribution WHERE id = ?').get(distId);
+  if (d && d.applicant_id === employeeId) return true;
+  return !!db.prepare(
+    'SELECT 1 FROM distribution_recipient WHERE distribution_id = ? AND employee_id = ?'
+  ).get(distId, employeeId);
+}
+
+// 携带状态码的 API 错误(事务内抛出,外层统一转成 HTTP 响应)
+class ApiError extends Error {
+  constructor(status, body) {
+    super(body && body.error ? body.error : 'api_error');
+    this.name = 'ApiError';
+    this.status = status;
+    this.body = body;
+  }
+}
+
 // ---------- 创建发放单 POST /distribution/requests ----------
 async function createDistribution(app, req, reply) {
   const body = req.body || {};
@@ -144,6 +175,10 @@ async function approveDistribution(app, req, reply) {
   if (dist.distributor_id === req.principal.employee_id) {
     return reply.code(403).send({ ok: false, error: '审批人不能与发放人相同' });
   }
+  // A-2:审批权校验 —— admin_level>=1 或发放模块带 approve/ALL
+  if (!canApprove(app.db, req.principal.employee_id)) {
+    return reply.code(403).send({ ok: false, error: '无审批权限(需 admin_level>=1 或发放审批权)' });
+  }
 
   const approvalId = `APR-${Date.now()}`;
   app.db.transaction(() => {
@@ -190,27 +225,30 @@ async function issueDistribution(app, req, reply) {
 
   const lines = app.db.prepare('SELECT * FROM distribution_line WHERE distribution_id = ? ORDER BY line_no').all(id);
 
-  // 预检库存(A-T2:返回 409 + 点名物资 + available/requested)
-  for (const ln of lines) {
-    const inv = app.db.prepare('SELECT stock FROM inventory_item WHERE id = ?').get(ln.item_id);
-    if (!inv) return reply.code(404).send({ ok: false, error: `物资 ${ln.item_id} 不存在` });
-    if (inv.stock < ln.qty) {
-      return reply.code(409).send({
-        ok: false, error: `物资 ${ln.item_id} 库存不足`,
-        item_id: ln.item_id, available: inv.stock, requested: ln.qty,
-      });
-    }
-  }
-
+  // A-4:库存校验整体在事务内 —— 保证 409 的 available 读数与扣减在同一快照,
+  // 事务外预检通过后库存被改动时,事务内 UPDATE 不满足会回滚并仍回 409。
   try {
     app.db.transaction(() => {
-      // 扣减 + 流水(预检已通过;事务内 UPDATE ... AND stock>=? 双保险,失败回滚)
       for (const ln of lines) {
+        const inv = app.db.prepare('SELECT stock FROM inventory_item WHERE id = ?').get(ln.item_id);
+        if (!inv) throw new ApiError(404, { ok: false, error: `物资 ${ln.item_id} 不存在` });
+        if (inv.stock < ln.qty) {
+          throw new ApiError(409, {
+            ok: false, error: `物资 ${ln.item_id} 库存不足`,
+            item_id: ln.item_id, available: inv.stock, requested: ln.qty,
+          });
+        }
         const updated = app.db.prepare(
           `UPDATE inventory_item SET stock = stock - ?, updated_at = CURRENT_TIMESTAMP
            WHERE id = ? AND stock >= ?`
         ).run(ln.qty, ln.item_id, ln.qty);
-        if (updated.changes === 0) throw new Error(`物资 ${ln.item_id} 扣减失败(可能库存已变)`);
+        if (updated.changes === 0) {
+          const cur = app.db.prepare('SELECT stock FROM inventory_item WHERE id = ?').get(ln.item_id);
+          throw new ApiError(409, {
+            ok: false, error: `物资 ${ln.item_id} 库存不足`,
+            item_id: ln.item_id, available: cur ? cur.stock : 0, requested: ln.qty,
+          });
+        }
 
         const item = app.db.prepare('SELECT stock FROM inventory_item WHERE id = ?').get(ln.item_id);
         app.db.prepare(
@@ -240,6 +278,7 @@ async function issueDistribution(app, req, reply) {
       });
     })();
   } catch (e) {
+    if (e instanceof ApiError) return reply.code(e.status).send(e.body);
     return reply.code(400).send({ ok: false, error: e.message });
   }
 
@@ -351,37 +390,30 @@ async function receiveDistribution(app, req, reply) {
     return reply.code(400).send({ ok: false, error: `状态 ${dist.status} 不允许签收(应发放中)` });
   }
 
-  // self-only 强制:签收人 = 当前登录人
-  if (policy(app.db, 'signoff.self_only', 'true') === 'true') {
-    if (req.principal.employee_id !== dist.applicant_id) {
-      // 允许接收人本人签:也检查是否在 recipient 池
-      const rec = app.db.prepare(
-        `SELECT * FROM distribution_recipient WHERE distribution_id = ? AND employee_id = ?`
-      ).get(id, req.principal.employee_id);
-      if (!rec) {
-        return reply.code(403).send({ ok: false, error: 'self_only:仅申请人/接收人本人可签收' });
-      }
-    }
-  }
-
+  // A-3:统一签收口径 —— 签收人必须在该单据接收人池中且状态为"已移交"。
+  // 此前 principal==applicant 时跳过池校验:申请人若不在池里,事务内不更新任何行,
+  // 却照写 signoff 链事件并返回 ok:true(假成功),链与业务状态分叉且幂等键已写无法重签。
   const recipientId = req.principal.employee_id;
   const rec = app.db.prepare(
     `SELECT * FROM distribution_recipient WHERE distribution_id = ? AND employee_id = ?`
   ).get(id, recipientId);
-  if (rec && rec.status === '已接收') {
+  if (!rec) {
+    return reply.code(403).send({
+      ok: false, error: 'self_only:仅接收人本人可签收,当前账号不在该单据接收人池'
+    });
+  }
+  if (rec.status === '已接收') {
     return reply.code(400).send({ ok: false, error: '已签收过' });
   }
-  if (rec && rec.status === '待接收') {
+  if (rec.status !== '已移交') {
     return reply.code(400).send({ ok: false, error: '需先完成班组移交' });
   }
 
   app.db.transaction(() => {
-    if (rec) {
-      app.db.prepare(
-        `UPDATE distribution_recipient SET status = '已接收', received_at = CURRENT_TIMESTAMP
-         WHERE distribution_id = ? AND employee_id = ?`
-      ).run(id, recipientId);
-    }
+    app.db.prepare(
+      `UPDATE distribution_recipient SET status = '已接收', received_at = CURRENT_TIMESTAMP
+       WHERE distribution_id = ? AND employee_id = ?`
+    ).run(id, recipientId);
     recordEvent(app.db, {
       ref_type: 'distribution', ref_id: id, step_no: 3,
       event: 'signoff',
@@ -439,6 +471,10 @@ async function registerDistributionRoutes(app) {
   app.post('/distribution/:id/transfer', preAuth, async (req, reply) => transferDistribution(app, req, reply));
   app.post('/distribution/:id/receive', preAuth, async (req, reply) => receiveDistribution(app, req, reply));
   app.get('/distribution/:id/chain', preAuth, async (req, reply) => {
+    // B-2:链查询限权 —— 申请人本人 / 接收人池中 / 有发放操作权,否则 403
+    if (!canViewDistribution(app.db, req.principal.employee_id, req.params.id)) {
+      return reply.code(403).send({ ok: false, error: '无权查看该单据审计链' });
+    }
     const v = verifyDistributionChain(app.db, req.params.id);
     return reply.send({ ok: true, id: req.params.id, ...v });
   });
@@ -446,5 +482,6 @@ async function registerDistributionRoutes(app) {
 
 module.exports = {
   registerDistributionRoutes, recordEvent, verifyDistributionChain,
-  readIdempotency, writeIdempotency, canDistribute
+  readIdempotency, writeIdempotency, canDistribute, canApprove,
+  canViewDistribution, ApiError
 };

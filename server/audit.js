@@ -5,8 +5,9 @@
 const { verifyChain } = require('./chain');
 
 // ---------- 权限:查看审计链 ----------
-// 规格 §7:View audit trail → L4/L5 全量,更低层级仅 own(简化:MVP 阶段
-// 有登录即放行;生产环境应按 level/admin_level 收紧。此处在测试中明确。)
+// 规格 §7:View audit trail → L4/L5 全量,更低层级仅 own。
+// B-1 接线后:/audit/chain 与 /audit/verify-all 需通过 canViewAudit,
+// /audit/events 未通过者只能看到自己作为操作人(actor_id)的事件。
 function canViewAudit(db, employeeId) {
   const p = db.prepare('SELECT level, admin_level FROM permissions WHERE employee_id = ?').get(employeeId);
   if (!p) return false;
@@ -21,6 +22,11 @@ async function listEvents(app, req, reply) {
 
   const where = [];
   const args = [];
+  // B-1:无审计查看权的人只能看自己作为操作人的事件(canViewAudit 此前定义了从未调用)
+  if (!canViewAudit(app.db, req.principal.employee_id)) {
+    where.push('actor_id = ?');
+    args.push(req.principal.employee_id);
+  }
   if (q.ref_type) { where.push('ref_type = ?'); args.push(q.ref_type); }
   if (q.ref_id)   { where.push('ref_id = ?');   args.push(q.ref_id); }
   if (q.actor_id) { where.push('actor_id = ?'); args.push(parseInt(q.actor_id, 10)); }
@@ -48,6 +54,10 @@ async function verifyOne(app, req, reply) {
   if (!ref_type || !ref_id) {
     return reply.code(400).send({ ok: false, error: '需要 ref_type 与 ref_id' });
   }
+  // B-1:单链校验需审计查看权
+  if (!canViewAudit(app.db, req.principal.employee_id)) {
+    return reply.code(403).send({ ok: false, error: '无审计链查看权限(需 admin_level>=1 或 level>=3)' });
+  }
   const r = verifyChain(app.db, ref_type, ref_id);
   // verify_ok 明确区分"接口成功"与"链校验结果"
   return reply.send({ ok: true, ref_type, ref_id, verify_ok: r.ok, events: r.events, head: r.head, broken_at: r.broken_at || null, reason: r.reason || null });
@@ -56,6 +66,10 @@ async function verifyOne(app, req, reply) {
 // ---------- GET /audit/verify-all 校验全库所有链 ----------
 // 扫出所有 (ref_type, ref_id) 组合,逐链校验;返回汇总。
 async function verifyAll(app, req, reply) {
+  // B-1:全库校验需审计查看权
+  if (!canViewAudit(app.db, req.principal.employee_id)) {
+    return reply.code(403).send({ ok: false, error: '无审计链查看权限(需 admin_level>=1 或 level>=3)' });
+  }
   const groups = app.db.prepare(
     'SELECT DISTINCT ref_type, ref_id FROM chain_event ORDER BY ref_type, ref_id'
   ).all();

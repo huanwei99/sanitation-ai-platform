@@ -21,8 +21,9 @@
 	}
 
 	# 其余请求 → 静态文件(原型 index.html / mobile.html / js / css)
+	# 本文件位于仓库根,静态根就是仓库根本身;写成 ../ 会指向仓库父目录导致全 404
 	handle {
-		root * ../
+		root * .
 		try_files {path} {path}/ /index.html
 		file_server
 	}
