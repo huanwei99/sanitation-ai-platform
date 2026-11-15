@@ -42,14 +42,19 @@ async function buildApp(opts = {}) {
   fastify.decorate('db', dbInfo ? dbInfo.db : null);
 
   // ---- 健康检查(验收标准:healthz 返回 200) ----
-  fastify.get('/healthz', async () => ({
-    status: 'ok',
-    service: 'sanitation-platform',
-    version: '0.1.0',
-    db: fastify.db ? 'ready' : 'unavailable',
-    uptime_s: Math.round(process.uptime()),
-    ts: new Date().toISOString()
-  }));
+  // C-3: db 不可用时 status 改 'degraded',让探活脚本区分正常与降级
+  fastify.get('/healthz', async (_req, reply) => {
+    const dbOk = !!fastify.db;
+    if (!dbOk) reply.code(503);
+    return {
+      status: dbOk ? 'ok' : 'degraded',
+      service: 'sanitation-platform',
+      version: '0.1.0',
+      db: dbOk ? 'ready' : 'unavailable',
+      uptime_s: Math.round(process.uptime()),
+      ts: new Date().toISOString()
+    };
+  });
 
   // ---- 认证路由(DR-T03):login/logout/me/change-password ----
   // 失败时(如 cookie 插件缺失)抛错;测试可直接注入 cookieSecret。
@@ -87,6 +92,12 @@ async function buildApp(opts = {}) {
   }
 
   // ---- 404 兜底(仅对 /api/* 返回 JSON,其余由静态层处理) ----
+  // C-3: index.html 启动时读一次缓存,避免每次 404 都同步 readFileSync
+  const indexPath = path.join(staticRoot, 'index.html');
+  let indexHtmlCache = null;
+  if (fs.existsSync(indexPath)) {
+    indexHtmlCache = fs.readFileSync(indexPath);
+  }
   fastify.setNotFoundHandler((req, reply) => {
     if (req.url.startsWith('/api/')) {
       return reply.code(404).send({
@@ -96,9 +107,8 @@ async function buildApp(opts = {}) {
       });
     }
     // 非 API 路径尝试返回 index.html(SPA fallback)
-    const indexPath = path.join(staticRoot, 'index.html');
-    if (fs.existsSync(indexPath)) {
-      return reply.type('text/html').send(fs.readFileSync(indexPath));
+    if (indexHtmlCache) {
+      return reply.type('text/html').send(indexHtmlCache);
     }
     reply.code(404).send('Not Found');
   });

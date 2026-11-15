@@ -97,9 +97,15 @@ async function createDistribution(app, req, reply) {
   }
 
   // 生成单号 MD-{year}-{seq}
+  // C-1:用 MAX(序号)+1 而非 COUNT(*)+1 —— COUNT 不含已删/回滚记录,会撞号
   const year = new Date().getFullYear();
-  const cnt = app.db.prepare(`SELECT COUNT(*) AS c FROM distribution WHERE id LIKE 'MD-${year}-%'`).get().c;
-  const distId = `MD-${year}-${String(cnt + 1).padStart(4, '0')}`;
+  const prefix = `MD-${year}-`;
+  const maxRow = app.db.prepare(
+    `SELECT MAX(CAST(SUBSTR(id, ?) AS INTEGER)) AS m
+       FROM distribution WHERE id LIKE ?`
+  ).get(prefix.length + 1, `${prefix}%`);
+  const seq = (maxRow && maxRow.m ? maxRow.m : 0) + 1;
+  const distId = `${prefix}${String(seq).padStart(4, '0')}`;
 
   // 计算总金额
   let total_cost = 0;
