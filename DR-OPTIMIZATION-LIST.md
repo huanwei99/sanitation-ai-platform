@@ -2,7 +2,7 @@
 
 v1.1 · 2026-11-15 · 审查对象：`e6094b5 实现 Dry-Run 冲刺包 DR-T01~T08`（server/、Caddyfile、migrations 003/004、ci.yml、DRILL-SCRIPT.md）
 
-## 实施状态（2026-11-15 更新）
+## 实施状态（2026-11-16 更新）
 
 | 项 | 状态 |
 |---|---|
@@ -10,21 +10,22 @@ v1.1 · 2026-11-15 · 审查对象：`e6094b5 实现 Dry-Run 冲刺包 DR-T01~T0
 | B-1、B-2 | ✅ **已修并提交**（`66d8ce7`） |
 | C-1、C-3 | ✅ **已修**（`c6075f8`） |
 | 文档过期 | ✅ **已修**（本文档、DRILL-SCRIPT、server/README） |
-| C-2① 改密禁新旧相同 | ✅ **已修**（含测试 DR-T03-06） |
-| C-2② 锁定解锁端点 | ⏳ 待定，需 Daniel 拍板 |
+| C-2① 改密禁新旧相同 | ✅ **已修**（`74e53fc`，含测试 DR-T03-06） |
+| C-2② 锁定解锁端点 | ✅ **已修并提交**（`791b368`，含测试 DR-T03-07/08/09） |
 
 已修内容速览：
 - A/B 级（提交 `66d8ce7`）：Caddyfile 静态根改 `.`；审批加 `canApprove`（admin_level≥1 或发放 approve 权）；签收统一为"必须在接收人池且状态已移交"（堵假成功）；库存预检并入事务并统一 409 口径；/audit/* 接线 `canViewAudit`（低权限仅看本人事件）；链查询限"申请人/接收人/有发放权"。
 - C 级（提交 `c6075f8`）：
   - **C-1** 单号生成改 `MAX(序号)+1`（防删/回滚撞号）
   - **C-3** healthz db 不可用时改 `degraded` + 503；404 页面启动时缓存；engines 收紧到 `>=22.5`
-- C-2①（本次提交）：改密加"新密码不能与原密码相同"校验 + 测试 DR-T03-06。
-- C-2②（解锁端点）仍待拍板。
+- **C-2①**（`74e53fc`）：改密加"新密码不能与原密码相同"校验 + 测试 DR-T03-06。
+- **C-2②**（`791b368`）：管理员解锁端点 `POST /auth/unlock`（admin_level≥1），写 `account_lock_log` 解锁审计，不进 chain_event；测试 DR-T03-07/08/09。
+- 修复 Fastify 装饰器时序：`/auth/unlock` 路由在 `app.decorate('authenticate')` 之后注册（防重犯注释）。
 
-**验证状态：✅ 已验证全绿（2026-11-15）**
+**验证状态：✅ 已验证全绿（2026-11-16）**
 
 - 本机 Node v22.23.5（`AppData/Local/Programs/nodejs`，满足 22.5+ 的 node:sqlite 要求）
-- `server` 套：**31 pass / 0 fail** —— 原 27 项 + 新增 4 项回归覆盖（[server/regression-ab.test.js](server/regression-ab.test.js)：A-2 无权审批 403、A-3 申请人不在池签收 403、B-1 审计限权、B-2 链查询限权）
+- `server` 套：**35 pass / 0 fail** —— 原 31 项 + C-2② 新增 4 项（DR-T03-06/07/08/09）
 - `foundation` 套：**22 pass / 0 fail**（内存版 A-T1..A-T13 + SQL 版，无回退）
 - 复现命令：`cd server && npm test`；`cd foundation && node --test tests/engine.test.js tests/sql.test.js`
 
