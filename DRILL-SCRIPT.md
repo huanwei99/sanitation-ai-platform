@@ -22,8 +22,8 @@ npm install
 
 ### 0.3 跑测试（确认代码正常）
 ```powershell
-node --test
-# 期望: 31 pass / 0 fail
+node --test *.test.js
+# 期望: 137 pass / 0 fail(server)+ foundation 22 = **159 pass / 0 fail**
 ```
 
 ### 0.4 灌入演练种子数据

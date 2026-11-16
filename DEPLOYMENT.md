@@ -75,7 +75,8 @@ npm start
 
 ## 3. 启动 Caddy(可选,用于同源部署)
 
-不装 Caddy 也能用 API,但前端页面会遇到跨域。**试点部署建议装 Caddy**。
+**开发/走查环境无需 Caddy**:`@fastify/static` 已纳入依赖,Fastify 在 `:8791` 直接同源托管前端页面
+(`index.html` / `mobile-sign.html` / `config.html`)。试点部署推荐 Caddy 以隔离前后端;不装 Caddy 也能用全功能。
 
 ### 3.1 下载 Caddy
 
@@ -140,7 +141,7 @@ sanitation-ai-platform/
 │   ├── data/                  # SQLite 库文件(自动创建)
 │   └── *.test.js              # 测试
 ├── foundation/
-│   ├── migrations/            # SQL 迁移(001~007)
+│   ├── migrations/            # SQL 迁移(001~010)
 │   └── tests/                 # 内存引擎 + SQL 测试
 └── .github/workflows/ci.yml   # CI
 ```
@@ -156,7 +157,7 @@ cd server
 npm test
 ```
 
-应输出 `# pass 54`(server)+ foundation `22` = **76 pass / 0 fail**。
+应输出 server `137` pass + foundation `22` = **159 pass / 0 fail**。
 
 ### 6.2 健康检查
 

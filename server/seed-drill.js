@@ -19,7 +19,7 @@ async function main() {
     employee_id: 9001, account: 'DRILL-KEEPER', password: PWD, name: '演练-库管员',
     position: '仓库管理员', department: '仓储部',
     permissions: { mode: 'manual', level: 3, scope: 'self',
-      modules: { distribution: ['edit'], inventory: ['edit'] }, admin_level: 0 }
+      modules: { distribution: ['view', 'edit'], inventory: ['view', 'edit'] }, admin_level: 0 }
   });
   await seedAccount(db, {
     employee_id: 9002, account: 'DRILL-APPROVER', password: PWD, name: '演练-审批人',

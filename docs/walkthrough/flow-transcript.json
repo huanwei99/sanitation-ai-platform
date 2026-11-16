@@ -1,0 +1,239 @@
+[
+  {
+    "step": "healthz",
+    "status": "ok",
+    "service": "sanitation-platform",
+    "version": "0.1.0",
+    "db": "ready",
+    "uptime_s": 14,
+    "ts": "2026-11-16T11:17:37.203Z"
+  },
+  {
+    "step": "accounts",
+    "DRILL-KEEPER": 9001,
+    "DRILL-APPROVER": 9002,
+    "DRILL-LEADER": 9003,
+    "DRILL-WORKER": 9004
+  },
+  {
+    "step": "create-A",
+    "status": 201,
+    "id": "MD-2026-0001",
+    "status_text": "待审批"
+  },
+  {
+    "step": "approve-A",
+    "status": 200,
+    "body": {
+      "ok": true,
+      "id": "MD-2026-0001",
+      "status": "已批准",
+      "approval_id": "APR-1794827859112"
+    }
+  },
+  {
+    "step": "issue-A",
+    "status": 200,
+    "body": {
+      "ok": true,
+      "id": "MD-2026-0001",
+      "status": "发放中",
+      "step": 1,
+      "deducted": 1
+    }
+  },
+  {
+    "step": "transfer-A1",
+    "status": 200,
+    "body": {
+      "ok": true,
+      "id": "MD-2026-0001",
+      "recipient_id": 9003,
+      "status": "已移交"
+    }
+  },
+  {
+    "step": "transfer-A2",
+    "status": 200,
+    "body": {
+      "ok": true,
+      "id": "MD-2026-0001",
+      "recipient_id": 9004,
+      "status": "已移交"
+    }
+  },
+  {
+    "step": "leader-self-sign",
+    "click": "clicked"
+  },
+  {
+    "step": "proxy-denied-keeper",
+    "status": 403,
+    "body": {
+      "ok": false,
+      "error": "非接收人本人,且岗位不在代签白名单"
+    }
+  },
+  {
+    "step": "proxy-ok-leader",
+    "status": 200,
+    "body": {
+      "ok": true,
+      "id": "MD-2026-0001",
+      "received_by": 9004,
+      "signed_by": 9003,
+      "mode": "proxy",
+      "status": "发放中"
+    }
+  },
+  {
+    "step": "create-B",
+    "status": 201,
+    "id": "MD-2026-0002",
+    "status_text": "待审批"
+  },
+  {
+    "step": "approve-B",
+    "status": 200,
+    "body": {
+      "ok": true,
+      "id": "MD-2026-0002",
+      "status": "已批准",
+      "approval_id": "APR-1794827862660"
+    }
+  },
+  {
+    "step": "issue-B",
+    "status": 200,
+    "body": {
+      "ok": true,
+      "id": "MD-2026-0002",
+      "status": "发放中",
+      "step": 1,
+      "deducted": 1
+    }
+  },
+  {
+    "step": "transfer-B",
+    "status": 200,
+    "body": {
+      "ok": true,
+      "id": "MD-2026-0002",
+      "recipient_id": 9004,
+      "status": "已移交"
+    }
+  },
+  {
+    "step": "offline-enqueue",
+    "click": "clicked"
+  },
+  {
+    "step": "advance-A-done",
+    "status": 200,
+    "status_text": "已完成"
+  },
+  {
+    "step": "advance-B-done",
+    "status": 200,
+    "status_text": "已完成"
+  },
+  {
+    "step": "audit-verify-all",
+    "status": 200,
+    "body": {
+      "ok": true,
+      "all_ok": true,
+      "chains": 2,
+      "broken": 0,
+      "results": [
+        {
+          "ref_type": "distribution",
+          "ref_id": "MD-2026-0001",
+          "ok": true,
+          "events": 10,
+          "broken_at": null,
+          "reason": null
+        },
+        {
+          "ref_type": "distribution",
+          "ref_id": "MD-2026-0002",
+          "ok": true,
+          "events": 8,
+          "broken_at": null,
+          "reason": null
+        }
+      ]
+    }
+  },
+  {
+    "step": "audit-chain-A",
+    "status": 200,
+    "body": {
+      "ok": true,
+      "ref_type": "distribution",
+      "ref_id": "MD-2026-0001",
+      "verify_ok": true,
+      "events": 10,
+      "head": "92fc4af04e6774ad505af87e9ab413504807d7392278abf52a0ab74ae25cc7f4",
+      "broken_at": null,
+      "reason": null
+    }
+  },
+  {
+    "step": "stock-movements",
+    "status": 200,
+    "body": {
+      "ok": true,
+      "page": 1,
+      "limit": 10,
+      "total": 2,
+      "pages": 1,
+      "summary": {
+        "total_in": 0,
+        "total_out": 3
+      },
+      "items": [
+        {
+          "id": 2,
+          "item_id": "INV-002",
+          "delta": -1,
+          "reason": "distribution_out",
+          "ref_type": "distribution",
+          "ref_id": "MD-2026-0002",
+          "line_no": 1,
+          "qty_after": 119,
+          "actor_id": 9001,
+          "occurred_at": "2026-11-16 11:17:42",
+          "depot_id": "DP-001",
+          "item_name": "84消毒液",
+          "actor_name": "演练-库管员"
+        },
+        {
+          "id": 1,
+          "item_id": "INV-001",
+          "delta": -2,
+          "reason": "distribution_out",
+          "ref_type": "distribution",
+          "ref_id": "MD-2026-0001",
+          "line_no": 1,
+          "qty_after": 498,
+          "actor_id": 9001,
+          "occurred_at": "2026-11-16 11:17:39",
+          "depot_id": "DP-001",
+          "item_name": "一次性口罩",
+          "actor_name": "演练-库管员"
+        }
+      ]
+    }
+  },
+  {
+    "step": "low-stock",
+    "status": 200,
+    "body": {
+      "ok": true,
+      "count": 0,
+      "critical": 0,
+      "items": []
+    }
+  }
+]
