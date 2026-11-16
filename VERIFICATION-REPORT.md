@@ -215,6 +215,51 @@ The re-run recommended at the close of §10 has now been **executed**, not just 
 - **Recommendation #2 ("Add CI now") — done.** Recommendation #1 (staff the sprint) — overtaken by delivery. **Recommendation #3 (D1 banner) — still the top open action**, and now the cheapest remaining item.
 - **Residual risk shifts from "can they build it?" to "is what they built correct and maintained?"** Concretely: (a) land the **append-only triggers** (A2) so the tamper-evident selling point is DB-enforced, not app-enforced; (b) add a **server-layer A-T7 concurrency test** (I1) to prove no-oversell under real SQLite serialization; (c) reconcile **DEMAND-POOL/DR-SPRINT-TRACKING** with what shipped so the evidence rule isn't undercut; (d) finish the **D1 banner**.
 
-**Overlap note:** the remote also added its own `COMPREHENSIVE-AUDIT-AND-EVOLUTION-PLAN.md` (`84478aa`), whose scope overlaps this report; the C-1/C-2①/C-2②/C-3 labels above come from its numbering. This report has **not** independently audited that plan in full — it reconciles only at the shared findings (both flag the auth/distribution paths and the still-open A2/I1/D1 items). A dedicated read is warranted before treating the two documents as a single source of truth.
+**Overlap note:** the remote also added its own `COMPREHENSIVE-AUDIT-AND-EVOLUTION-PLAN.md` (`84478aa`), whose scope overlaps this report; the C-1/C-2①/C-2②/C-3 labels above come from its numbering. Reconciled in full in **§12** below.
+
+---
+
+## 12. Reconciliation — this report vs `COMPREHENSIVE-AUDIT-AND-EVOLUTION-PLAN.md`
+
+`COMPREHENSIVE-AUDIT-AND-EVOLUTION-PLAN.md` (v1.1, 2026-11-16, 152 lines) has now been **read in full**. **Headline: it is complementary, not contradictory — with one direct conflict and two overstatements to flag.** The two documents attack the problem from opposite ends: this report is a *technical/code* verification of the implementation; the overlap doc is a *strategic/business* audit (positioning, market benchmarks, subsystem selection, roadmap). They barely overlap on code, and where they do, they mostly agree.
+
+### 12.1 What the overlap doc is (scope)
+Five sections: (一) current-state audit across goals/domain-fit/technical-feasibility; (二) benchmarking 3 market players (盈峰环境 / 伏泰科技 / Rubicon); (三) two "killer" subsystems (A materials, B snow-emergency); (四) explicit assumptions; (五) 4-stage roadmap. It is a *decision-layer* document — closest in spirit to `PROJECT-SOLUTION-DOC` + the subsystem selection, **not** to this report's line-level code audit. Its §一.3 technical findings were the source of the "A/B级 fix" labels adopted in §10.
+
+### 12.2 Cross-reference table
+
+| Overlap doc claim | This report counterpart | Status |
+|---|---|---|
+| §一.3 "Caddy 静态共享 localStorage/IndexedDB 是无效的；手机↔PC 必须靠服务端" | A1 / Phase-0 rationale (BroadcastChannel same-browser-only) | **Agree** — identical conclusion, independently reached; this is the strongest shared finding |
+| §一.3 "前端鉴权可被绕过" | G4 / A1 (mock `permissions:['all']`) | **Agree** |
+| §一.3 "密码明文硬编码" (historic) | Not separately tracked | Agree as historic; **note the default `Aa@123456` bootstrap password is still in SOP-Org-03** (I3) — overlap doc doesn't flag it as a *current* issue |
+| §一.3 "单文件上万行难以协作" | M2 (`index.html` 10,807 lines) | **Agree** |
+| §一.3 "scrypt 密码加盐哈希" | `server/auth.js:11` uses **`bcryptjs`**, not scrypt | **Divergence (factual error in overlap doc)** — see 12.3 |
+| §一.3 "覆盖数百项的单元测试与回归测试集" | Executed count = **57** (13+9+35) | **Overstatement** — see 12.3 |
+| §一.3 "better-sqlite3" | `optionalDependencies`; code prefers `node:sqlite` | Minor — it works, but the doc names the optional path as the primary |
+| §一.1 "定位摇摆：无后端单机 vs 集团多租户" | D1 (formal doc never reconciled to server-first) | **Agree** — same root cause, different framing |
+| §一.2 "强密码/强制改密/5次锁定脱离一线高龄工人实际" | Decision #2 assumed the *opposite* (一线有手机+账号, self-only, no PIN fallback) | **Tension** — see 12.4 |
+| §四 假设2.1 "代管原则"（班组长代录入，不假设每人会用手机） | Decision #2 / A-T5 self-only | **Direct conflict** — see 12.4 |
+| §三/§五 subsystem A/B + 4-stage roadmap | Sub-system A spec / roadmap phases | **Agree in direction**; overlap doc's B (emergency) is *not* in this report's P1–P4 (deferred to P3 demo/simulator) |
+| Does it track **A2** (append-only triggers)? | — | **No** — no mention of DB-enforced tamper-evidence |
+| Does it track **I1** (A-T7 concurrency)? | — | **No** — it asserts "防超卖" is done but never names a concurrency test |
+| Does it track **D1** (formal-doc banner)? | — | **Partially** — flags "定位摇摆" but proposes no deprecation action |
+
+### 12.3 Two factual overstatements in the overlap doc (code-verified)
+1. **Hash algorithm:** §一.3 states "密码加盐哈希（**scrypt**）." The actual code (`server/auth.js:11`) sets `PWD_ALGO = 'bcryptjs'` and calls `bcrypt.hash(plain, 10)`. It is **bcrypt, not scrypt.** Both are salted and acceptable, but the doc names the wrong algorithm — the same class of doc-drift this report keeps catching (D3).
+2. **Test volume:** §一.3 claims "覆盖**数百项**的单元测试与回归测试集" (hundreds of tests). The executed, real count across all 8 test files is **57** (13 engine + 9 SQL + 35 server). "数百" overstates by ~4–5×. The 57 are genuinely good tests; they just aren't "hundreds."
+
+### 12.4 One direct conflict to escalate — self-only vs 代管 (the most important item)
+- **This report / `foundation/README.md` Decision #2 / A-T5:** asserts every 一线 worker **has a phone + account**, enforces **self-only sign-off** (`signoff.self_only='true'`, `distribution.js:407`), explicitly "no PIN fallback."
+- **Overlap doc §一.2 + 假设2.1:** asserts the opposite — workers average **50–65 years old**, "不假设每名保洁员都能熟练使用智能手机完成复杂的账号登录和改密," and prescribes **班组长/车队长代管录入** (leader signs on the worker's behalf) plus "移动端免复杂密码代签."
+
+These are **mutually exclusive controls.** Self-only exists specifically to prevent a supervisor from signing on a worker's behalf (the anti-fraud property the audit chain is built around); 代管 deliberately reintroduces exactly that. **The self-only test suite (A-T5, DR-T05-03) currently locks in self-only**, while the strategy doc prescribes 代管 — meaning either the strategy doc's assumption is wrong, or the implemented control is wrong for the real workforce. This is a **product/requirements decision, not a code bug**, and it must be resolved by Daniel before the pilot: if the real workforce can't self-sign, the whole self-only/anti-fraud chain (A-T5, and the 履约 evidence story built on it) needs rethinking. **This is the single highest-value finding of the reconciliation** — neither document resolved it, and they currently disagree on `main`.
+
+### 12.5 Net
+- The overlap doc is **complementary** and worth keeping as the strategic layer; it independently corroborates the two biggest shared findings (server-mandatory, frontend-auth-bypassable).
+- **Correct in the overlap doc:** the scrypt→bcrypt error and the "数百项 tests" overstatement (both minor, both fixable in one edit).
+- **Escalate:** the self-only vs 代管 conflict (12.4) — a genuine requirements fork that the code and the strategy doc currently answer oppositely.
+- **This report's still-open A2/I1/D1 are not tracked by the overlap doc**, so the two documents are *not* redundant — the overlap doc misses all three. Keep this report as the technical-completeness source of truth for those.
+- **Recommended action stack is unchanged and now fully evidence-backed:** resolve self-only-vs-代管 (new, highest value) → D1 banner (minutes) → append-only triggers (A2) → server-layer A-T7 (I1) → reconcile DEMAND-POOL with what shipped.
 
 **Net:** the report's #1 risk (execution capacity) was answered in the best possible way — code landed ahead of schedule. The priority stack collapses to: re-run this verification against `a85565d` (especially the new auth/distribution code paths, the correctness of the pushed fixes, and the "35 pass" claim via `npm test`), land the D1 deprecation banner, and reconcile DEMAND-POOL / DR-SPRINT-TRACKING with what actually shipped.
