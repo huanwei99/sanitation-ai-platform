@@ -27,10 +27,10 @@ function writeIdempotency(db, key, endpoint, employeeId, status, body) {
   ).run(key, endpoint, employeeId, status, JSON.stringify(body));
 }
 
-// ---------- 策略 ----------
+// ---------- 策略(P0-T02:统一走 org-policy 服务,改动即时生效) ----------
+const { getPolicy } = require('./org-policy');
 function policy(db, key, def = 'false') {
-  const row = db.prepare('SELECT value FROM org_policy WHERE key = ?').get(key);
-  return row ? row.value : def;
+  return getPolicy(db, key, def);
 }
 
 // ---------- 权限检查(简化:仅用于本次 DR-T04,非完整 RBAC) ----------
@@ -420,7 +420,7 @@ async function receiveDistribution(app, req, reply) {
   // 权限判定:本人签收 OR 代签白名单(position 匹配 signoff.proxy_positions)
   let mode = 'self';
   if (targetId !== actorId) {
-    const proxyPositions = (app.db.prepare("SELECT value FROM org_policy WHERE key='signoff.proxy_positions'").get()?.value || '')
+    const proxyPositions = getPolicy(app.db, 'signoff.proxy_positions', '')
       .split(',').map(s => s.trim()).filter(Boolean);
     const pos = req.principal.position || '';
     const whitelisted = proxyPositions.some(kw => pos.includes(kw));

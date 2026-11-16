@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>策略配置面板 - 环卫物资平台</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; background: #f5f6f8; color: #222; padding: 16px; }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 18px; margin-bottom: 12px; }
+  .card { background: #fff; border-radius: 8px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 12px; }
+  .row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid #eee; }
+  .row:last-child { border-bottom: none; }
+  .key { font-weight: 600; min-width: 200px; font-size: 13px; color: #444; word-break: break-all; }
+  .val { flex: 1; padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; }
+  button { padding: 6px 14px; border: none; border-radius: 4px; background: #2563eb; color: #fff; cursor: pointer; font-size: 13px; }
+  button:disabled { background: #9ca3af; cursor: not-allowed; }
+  .toast { position: fixed; top: 16px; right: 16px; padding: 10px 16px; border-radius: 6px; color: #fff; font-size: 13px; opacity: 0; transition: opacity .3s; }
+  .toast.show { opacity: 1; }
+  .toast.ok { background: #16a34a; }
+  .toast.err { background: #dc2626; }
+  .login input { display: block; width: 100%; padding: 8px; margin-bottom: 8px; border: 1px solid #ccc; border-radius: 4px; }
+  .muted { font-size: 12px; color: #888; margin-top: 4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>策略配置面板</h1>
+  <div id="login" class="card login">
+    <div class="muted">需管理员账号登录(admin_level>=1 或 level>=3)</div>
+    <input id="acct" placeholder="工号账号" />
+    <input id="pwd" type="password" placeholder="密码" />
+    <button onclick="doLogin()">登录</button>
+  </div>
+  <div id="panel" style="display:none">
+    <div class="card">
+      <div id="list"></div>
+    </div>
+  </div>
+</div>
+<div id="toast" class="toast"></div>
+<script>
+let cookie = '';
+function toast(msg, ok) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show ' + (ok ? 'ok' : 'err');
+  setTimeout(() => t.className = 'toast', 2200);
+}
+async function doLogin() {
+  const account = document.getElementById('acct').value;
+  const password = document.getElementById('pwd').value;
+  const r = await fetch('/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ account, password }) });
+  if (!r.ok) { toast('登录失败: ' + (await r.json()).error, false); return; }
+  cookie = r.headers.get('set-cookie') || '';
+  // 浏览器会自动带 cookie;此处 set-cookie 可能被脚本读取不到,直接依赖浏览器 cookie
+  document.getElementById('login').style.display = 'none';
+  document.getElementById('panel').style.display = 'block';
+  loadList();
+}
+async function loadList() {
+  const r = await fetch('/org-policy');
+  if (r.status === 403) { toast('无策略管理权限', false); return; }
+  if (r.status === 401) { document.getElementById('login').style.display = 'block'; document.getElementById('panel').style.display = 'none'; return; }
+  const data = await r.json();
+  const html = data.policies.map(p => `
+    <div class="row">
+      <span class="key" title="${p.key}">${p.key}</span>
+      <input class="val" id="v_${btoa(p.key)}" value="${p.value}" />
+      <button onclick="saveKey('${p.key}')">保存</button>
+    </div>`).join('');
+  document.getElementById('list').innerHTML = html;
+}
+async function saveKey(key) {
+  const val = document.getElementById('v_' + btoa(key)).value;
+  const r = await fetch('/org-policy/' + key, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value: val }) });
+  const d = await r.json();
+  if (r.ok) { toast(`已保存 ${key}=${d.value}(即时生效)`, true); }
+  else { toast('保存失败: ' + d.error, false); }
+}
+// 自动检测登录态
+fetch('/auth/me').then(r => { if (r.ok) { document.getElementById('login').style.display = 'none'; document.getElementById('panel').style.display = 'block'; loadList(); } });
+</script>
+</body>
+</html>

@@ -8,6 +8,7 @@ const { initDb } = require('./db');
 const { registerAuthRoutes } = require('./auth');
 const { registerDistributionRoutes } = require('./distribution');
 const { registerAuditRoutes } = require('./audit');
+const { registerOrgPolicyRoutes } = require('./org-policy-routes');
 
 async function buildApp(opts = {}) {
   let fastify;
@@ -67,6 +68,9 @@ async function buildApp(opts = {}) {
 
   // ---- 审计链查询/校验(DR-T06):A-T10 ----
   await registerAuditRoutes(fastify);
+
+  // ---- org_policy 管理(P0-T02):策略即时生效,无需重启 ----
+  await registerOrgPolicyRoutes(fastify);
 
   // ---- 静态文件托管(同源方案,替代后续 Caddy 直接 serve) ----
   // Phase-0 架构要求:生产环境由 Caddy 托管静态文件,
