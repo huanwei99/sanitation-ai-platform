@@ -12,6 +12,7 @@ const { registerOrgPolicyRoutes } = require('./org-policy-routes');
 const { registerOutboxRoutes } = require('./outbox');
 const { registerDepotTransferRoutes } = require('./depot-transfer');
 const { registerSeedImportRoutes } = require('./seed-import');
+const { registerRequisitionRoutes } = require('./requisition');
 
 async function buildApp(opts = {}) {
   let fastify;
@@ -68,6 +69,9 @@ async function buildApp(opts = {}) {
 
   // ---- 发放链路由(DR-T04):依赖 auth 的 authenticate 装饰器 ----
   await registerDistributionRoutes(fastify);
+
+  // ---- 领取链路由(P1-T01):2步流程,复用 authenticate 装饰器 ----
+  await registerRequisitionRoutes(fastify);
 
   // ---- 审计链查询/校验(DR-T06):A-T10 ----
   await registerAuditRoutes(fastify);
