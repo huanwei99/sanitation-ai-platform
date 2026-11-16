@@ -55,10 +55,10 @@
   2. 🔴 **真人演练未做** —— DRILL-SCRIPT 从未被非开发同事走通过(11-26 冻结前)
   3. 🟠 签收模型按 Daniel 拍板改为代签白名单(`1a4879e`),需在演练中确认口径符合预期
   4. 🟡 P0-T03 口径偏差:交付的是服务端 outbox,任务定义要求的**前端 IndexedDB 队列仍未做**(并入 P1-T05)
-  5. 🟡 P1 剩余缺口:P1-T05 移动端深化已由 `72c2174` 交付(走查预演实测离线队列可用);**仅剩 P1-T07 多仓 UI(前端)**待认领
+  5. 🟢 P1 全部交付:P1-T05 移动端深化(`72c2174`)+ P1-T07 多仓 UI `depot-console.html`(`c4bc47b`)—— 走查会上验收
   6. 🟢 走查预演完成(Qoder):全链 18 事件 2 链 verify_all=true,产出 [docs/walkthrough](docs/walkthrough/WALKTHROUGH-DECK.md) 截图集
 - 下周重点:备份恢复演练;真人走 DRILL-SCRIPT;P1-T07 认领;走查会
-- 需 Daniel 定夺:① 备份恢复演练排期(Go/No-Go 前置)② 演练日期与人选 ③ P1-T07 认领 ④ 是否补"演练控制台"单页(见 §三)
+- 需 Daniel 定夺:① 备份恢复演练排期(Go/No-Go 前置)② 演练日期与人选 ③ P0-T03 前端队列口径(localStorage vs IndexedDB)④ 走查会验收三件套:多仓 UI / 演练控制台 / 离线口径(见 §三)
 
 ---
 
@@ -75,7 +75,7 @@
 | 1 | 服务按 DEPLOYMENT 起来 | ✅ 预演验证 | Fastify :8791 同源即可,无需 Caddy |
 | 2 | 种子数据 + 账号权限可走全程 | ✅ 预演验证 | `seed-drill.js` 已补 inventory:view |
 | 3 | 备份恢复演练(删库→恢复→服务正常) | ✅ **已完成**(2026-11-16 实测 < 2 分钟,见 DEPLOYMENT §11) | – |
-| 4 | 🟡 演练控制台单页(管理端点击操作) | 待 Daniel 定夺 | 管理端只有 API,无 UI;约半天工作量 |
+| 4 | 演练控制台单页(管理端点击操作) | ✅ **已完成** | `drill-console.html` 八步全点击;CDP 实跑全链 `verify_all=true`(见走查集 §1⑰) |
 | 5 | 🔴 真人(非开发)走一遍 DRILL-SCRIPT | ❌ 未做 | 走查会本身即可作为第一次真人演练 |
 | 6 | 手机同网段访问 | 会上第一件事 | Daniel 用自己手机开 mobile-sign.html |
 
@@ -87,6 +87,7 @@
 4. **台账与报表**(8 分):推完 step2-4 → 流水/低库存
 5. **审计链挑战**(10 分):让 Daniel 试图找出一处断链(找不到 = 通过)
 6. **策略面板**(5 分):代签白名单在线改,即时生效
+7. **验收/决策三件事**(5 分):多仓 UI(P1-T07)→ 演练控制台 → 离线队列口径(localStorage vs IndexedDB)—— 简报见 [走查集 §5](docs/walkthrough/WALKTHROUGH-DECK.md#5-会上需-daniel-拍板验收的三件事简报)
 
 ### 走查会退出标准
 

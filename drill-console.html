@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>演练控制台 · 环卫物资平台</title>
+  <style>
+    :root {
+      --primary: #1677ff; --primary-bg: #e6f4ff; --success: #52c41a;
+      --warning: #faad14; --danger: #ff4d4f; --border: #d9d9d9;
+      --text-primary: #000000e0; --text-secondary: #00000073;
+      --bg-page: #f5f5f5; --bg-white: #fff; --radius: 8px;
+      --shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI',
+                   'PingFang SC', 'Microsoft YaHei', sans-serif;
+      font-size:14px; color:var(--text-primary); background:var(--bg-page);
+      line-height:1.5714;
+    }
+    .header {
+      background:var(--bg-white); border-bottom:1px solid var(--border);
+      padding:12px 24px; display:flex; justify-content:space-between;
+      align-items:center; box-shadow:var(--shadow); position:sticky; top:0; z-index:10;
+    }
+    .header h1 { font-size:17px; font-weight:600; }
+    .header .user { color:var(--text-secondary); font-size:13px; }
+    .btn {
+      padding:6px 14px; border:1px solid var(--border); background:var(--bg-white);
+      border-radius:var(--radius); cursor:pointer; font-size:13px; transition:all 0.2s;
+    }
+    .btn:hover { border-color:var(--primary); color:var(--primary); }
+    .btn-primary { background:var(--primary); color:#fff; border-color:var(--primary); }
+    .btn-primary:hover { background:#4096ff; color:#fff; }
+    .btn-success { background:var(--success); color:#fff; border-color:var(--success); }
+    .btn:disabled { background:#f5f5f5; color:#bfbfbf; cursor:not-allowed; border-color:#d9d9d9; }
+    .banner {
+      background:#fffbe6; border-bottom:1px solid #ffe58f; padding:8px 24px;
+      font-size:12px; color:#614700;
+    }
+    .roles { display:flex; gap:8px; padding:12px 24px; background:var(--bg-white);
+             border-bottom:1px solid var(--border); flex-wrap:wrap; align-items:center; }
+    .roles .lbl { font-size:12px; color:var(--text-secondary); margin-right:4px; }
+    .role-btn { padding:5px 12px; border:1px solid var(--border); border-radius:16px;
+                background:#fff; cursor:pointer; font-size:12px; }
+    .role-btn.active { border-color:var(--primary); background:var(--primary-bg); color:var(--primary); font-weight:600; }
+    .layout { display:flex; gap:20px; max-width:1400px; margin:20px auto; padding:0 24px; align-items:flex-start; }
+    .steps { flex:1; min-width:0; }
+    .log-col { width:460px; flex:none; position:sticky; top:140px; }
+    .card {
+      background:var(--bg-white); border-radius:var(--radius); box-shadow:var(--shadow);
+      padding:16px 20px; margin-bottom:16px;
+    }
+    .card h3 { font-size:14px; margin-bottom:10px; }
+    .card h3 .num {
+      display:inline-block; background:var(--primary); color:#fff; border-radius:50%;
+      width:20px; height:20px; line-height:20px; text-align:center; font-size:12px; margin-right:8px;
+    }
+    .card .note { font-size:12px; color:var(--text-secondary); margin:6px 0; }
+    .doc-bar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+    .doc-bar input {
+      padding:6px 10px; border:1px solid var(--border); border-radius:var(--radius);
+      font-size:13px; width:180px; font-family:monospace;
+    }
+    .doc-state { font-size:13px; margin-top:10px; }
+    .doc-state .tag {
+      display:inline-block; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600;
+      background:var(--primary-bg); color:var(--primary); margin-right:8px;
+    }
+    .form-grid { display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; }
+    .form-group { display:flex; flex-direction:column; gap:4px; }
+    .form-group label { font-size:12px; color:var(--text-secondary); font-weight:500; }
+    .form-group select, .form-group input {
+      padding:6px 10px; border:1px solid var(--border); border-radius:var(--radius); font-size:13px;
+      min-width:130px; background:#fff;
+    }
+    .recip-list { display:flex; gap:12px; flex-wrap:wrap; margin-top:4px; }
+    .recip-list label { font-size:13px; display:flex; gap:4px; align-items:center; }
+    .action-row { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+    .recip-row { display:flex; gap:8px; align-items:center; padding:8px 0;
+                 border-bottom:1px solid #f0f0f0; font-size:13px; }
+    .recip-row:last-child { border-bottom:none; }
+    .recip-row .st { font-size:12px; color:var(--text-secondary); margin-left:auto; margin-right:12px; }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    th, td { padding:6px 10px; text-align:left; border-bottom:1px solid #f0f0f0; }
+    th { background:#fafafa; font-weight:600; font-size:12px; color:var(--text-secondary); }
+    /* 响应控制台 */
+    .console-card { background:#1e1e1e; border-radius:var(--radius); overflow:hidden; }
+    .console-card .title {
+      padding:10px 16px; color:#fff; font-size:13px; font-weight:600;
+      display:flex; justify-content:space-between; align-items:center;
+    }
+    .console-card .title button {
+      background:transparent; border:1px solid #555; color:#bbb; border-radius:4px;
+      padding:2px 10px; cursor:pointer; font-size:12px;
+    }
+    #log { height:520px; overflow-y:auto; padding:10px 16px; font-family:ui-monospace,
+           Consolas, monospace; font-size:12px; color:#d4d4d4; }
+    .log-item { margin-bottom:10px; }
+    .log-item .t { color:#888; font-size:11px; }
+    .log-item .a { color:#69c0ff; }
+    .log-item .s2 { color:#73d13d; } .log-item .s4 { color:#ffa39e; } .log-item .s3 { color:#ffd591; }
+    .log-item pre { white-space:pre-wrap; word-break:break-all; margin:2px 0 0; color:#d4d4d4; }
+    /* 登录 */
+    .login-wrap { max-width:360px; margin:80px auto; }
+    .login-wrap h2 { text-align:center; margin-bottom:20px; color:var(--primary); }
+    .login-wrap .card { box-shadow:var(--shadow); }
+    .login-wrap input {
+      width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius);
+      font-size:14px; margin-bottom:12px;
+    }
+    .error-msg { color:var(--danger); font-size:13px; margin-bottom:10px; min-height:18px; }
+  </style>
+</head>
+<body>
+
+<!-- 登录视图 -->
+<div id="view-login" class="login-wrap">
+  <h2>演练控制台 · 环卫物资平台</h2>
+  <div class="card">
+    <input id="login-account" type="text" placeholder="工号(如 DRILL-KEEPER)" autocomplete="username">
+    <input id="login-password" type="password" placeholder="密码" autocomplete="current-password">
+    <div class="error-msg" id="login-error"></div>
+    <button class="btn btn-primary" id="btn-login" style="width:100%;padding:10px;">登录</button>
+    <div class="note" style="margin-top:12px;">演练账号:DRILL-KEEPER 库管员 / DRILL-APPROVER 审批人 /
+      DRILL-LEADER 班组长 / DRILL-WORKER 一线,统一密码 <code>Aa@123456</code></div>
+  </div>
+</div>
+
+<!-- 主视图 -->
+<div id="view-main" style="display:none;">
+  <div class="header">
+    <div>
+      <h1>演练控制台</h1>
+      <div class="user" id="user-info" style="margin-top:2px;"></div>
+    </div>
+    <button class="btn" id="btn-logout">退出登录</button>
+  </div>
+  <div class="banner">⚠ 演练/走查专用工具页 —— 每个按钮对应一次真实 API 调用,响应原文显示在右侧控制台。此页不是生产界面。</div>
+
+  <div class="roles" id="role-bar">
+    <span class="lbl">一键切换身份:</span>
+  </div>
+
+  <div class="layout">
+    <div class="steps">
+      <!-- 单据栏 -->
+      <div class="card">
+        <h3>当前操作单据</h3>
+        <div class="doc-bar">
+          <input id="doc-id" placeholder="MD-2026-0001">
+          <button class="btn" id="btn-load-doc">载入</button>
+          <span class="note">创建后自动填入;也可手动输入已有单号</span>
+        </div>
+        <div class="doc-state" id="doc-state"></div>
+      </div>
+
+      <!-- 1 创建 -->
+      <div class="card">
+        <h3><span class="num">1</span>创建发放单</h3>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>申请人</label>
+            <select id="f-applicant"></select>
+          </div>
+          <div class="form-group">
+            <label>仓库</label>
+            <select id="f-depot"></select>
+          </div>
+          <div class="form-group">
+            <label>物资</label>
+            <select id="f-item"></select>
+          </div>
+          <div class="form-group">
+            <label>每人数量</label>
+            <input id="f-qty" type="number" min="1" value="1" style="width:80px;">
+          </div>
+        </div>
+        <div class="note" style="margin-top:10px;">接收人(勾选,各计 1 人):</div>
+        <div class="recip-list" id="f-recipients"></div>
+        <div class="action-row">
+          <button class="btn btn-primary" id="btn-create">创建发放单</button>
+          <span class="note">自动生成 Idempotency-Key 防重复提交</span>
+        </div>
+      </div>
+
+      <!-- 2 审批 -->
+      <div class="card">
+        <h3><span class="num">2</span>审批</h3>
+        <div class="note">需切换到审批人(DRILL-APPROVER)。库管员审批会被 403 拒。</div>
+        <div class="action-row"><button class="btn btn-primary" id="btn-approve">审批通过</button></div>
+      </div>
+
+      <!-- 3 出库 -->
+      <div class="card">
+        <h3><span class="num">3</span>出库(库存事务扣减)</h3>
+        <div class="note">需库管员;库存扣减在事务内完成,扣不足返回 409。</div>
+        <div class="action-row"><button class="btn btn-primary" id="btn-issue">出库</button></div>
+      </div>
+
+      <!-- 4 移交 -->
+      <div class="card">
+        <h3><span class="num">4</span>班组移交</h3>
+        <div class="note">出库后,为每位接收人分别办理移交(库管员)。</div>
+        <div id="transfer-list"></div>
+      </div>
+
+      <!-- 5 签收 -->
+      <div class="card">
+        <h3><span class="num">5</span>签收(本人 / 代签)</h3>
+        <div class="note">本人签:以接收人身份点"本人签收"。代签:以白名单岗位(班组长/车队长/队长)身份点"代签",响应含 <code>mode:"proxy"</code>;非白名单代签返回 403。</div>
+        <div id="receive-list"></div>
+      </div>
+
+      <!-- 6 推进 -->
+      <div class="card">
+        <h3><span class="num">6</span>推进台账步骤 → 已完成</h3>
+        <div class="note">全部签收后由库管员逐步推进 step2 → 3 → 4(已完成)。</div>
+        <div class="action-row">
+          <button class="btn" id="btn-adv2">推进到 step2</button>
+          <button class="btn" id="btn-adv3">推进到 step3</button>
+          <button class="btn btn-success" id="btn-adv4">推进到 step4(完成)</button>
+        </div>
+      </div>
+
+      <!-- 7 审计 -->
+      <div class="card">
+        <h3><span class="num">7</span>审计链验证</h3>
+        <div class="action-row">
+          <button class="btn" id="btn-verify-one">校验本单</button>
+          <button class="btn" id="btn-verify-all">校验全库</button>
+          <button class="btn" id="btn-events">事件流(本单)</button>
+        </div>
+      </div>
+
+      <!-- 8 库存 -->
+      <div class="card">
+        <h3><span class="num">8</span>库存快照</h3>
+        <div class="action-row" style="margin-top:0;">
+          <select id="inv-depot"></select>
+          <button class="btn" id="btn-inventory">查看库存</button>
+        </div>
+        <div id="inv-table" style="margin-top:10px;"></div>
+      </div>
+    </div>
+
+    <!-- 响应控制台 -->
+    <div class="log-col">
+      <div class="console-card">
+        <div class="title"><span>响应控制台(API 原文)</span><button id="btn-clear-log">清空</button></div>
+        <div id="log"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  'use strict';
+  var $ = function(id){ return document.getElementById(id); };
+
+  // 演练账号种子(来自 seed-drill.js)
+  var ACCOUNTS = [
+    { id: 9001, account: 'DRILL-KEEPER',   name: '库管员', units: '仓储部' },
+    { id: 9002, account: 'DRILL-APPROVER', name: '审批人', units: '管理部' },
+    { id: 9003, account: 'DRILL-LEADER',   name: '班组长', units: 'A班' },
+    { id: 9004, account: 'DRILL-WORKER',   name: '一线员工', units: 'B班' }
+  ];
+  var state = { user: null, docId: '', doc: null, roles: {} };
+
+  function fetchJson(url, opts) {
+    opts = opts || {};
+    opts.credentials = 'same-origin';
+    return fetch(url, opts).then(function(r){
+      return r.text().then(function(t){
+        var b; try { b = JSON.parse(t); } catch (e) { b = t; }
+        return { ok: r.ok, status: r.status, body: b };
+      });
+    });
+  }
+  function escapeHtml(s) {
+    return String(s==null?'':s).replace(/[&<>"]/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];
+    });
+  }
+
+  // ---------- 响应控制台 ----------
+  function log(action, res) {
+    var el = $('log');
+    var item = document.createElement('div');
+    item.className = 'log-item';
+    var sc = res.status >= 200 && res.status < 300 ? 's2' : (res.status >= 500 ? 's4' : (res.status >= 400 ? 's3' : 's2'));
+    var now = new Date();
+    var ts = String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0') + ':' + String(now.getSeconds()).padStart(2,'0');
+    item.innerHTML =
+      '<div class="t">' + ts + '</div>' +
+      '<div><span class="a">' + escapeHtml(action) + '</span> → <span class="' + sc + '">HTTP ' + res.status + '</span></div>' +
+      '<pre>' + escapeHtml(JSON.stringify(res.body, null, 2)) + '</pre>';
+    el.insertBefore(item, el.firstChild);
+  }
+  $('btn-clear-log').addEventListener('click', function(){ $('log').innerHTML = ''; });
+
+  // ---------- 登录 ----------
+  function doLogin(account, password) {
+    return fetchJson('/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ account: account, password: password })
+    }).then(function(res){
+      if (!res.ok) throw new Error(res.body.error || '登录失败');
+      return loadMe();
+    });
+  }
+  $('btn-login').addEventListener('click', function(){
+    var acc = $('login-account').value.trim() || 'DRILL-KEEPER';
+    var pwd = $('login-password').value || 'Aa@123456';
+    $('login-error').textContent = '';
+    doLogin(acc, pwd).catch(function(e){ $('login-error').textContent = e.message; });
+  });
+
+  function loadMe() {
+    return fetchJson('/auth/me').then(function(res){
+      if (!res.ok) { showLogin(); return; }
+      var b = res.body;
+      state.user = { id: b.employee.employee_id, account: b.employee.account, name: b.employee.name };
+      showMain();
+    });
+  }
+  function showLogin() {
+    $('view-login').style.display = 'block';
+    $('view-main').style.display = 'none';
+  }
+  function showMain() {
+    $('view-login').style.display = 'none';
+    $('view-main').style.display = 'block';
+    $('user-info').textContent = state.user.name + ' (' + state.user.account + ' / ' + state.user.id + ')';
+    renderRoleBar();
+    // 首次进入主界面时加载表单选项(启动时可能尚未登录,selects 是空的)
+    if ($('f-depot').options.length === 0) {
+      fillDepots().then(fillItems);
+    }
+  }
+
+  // ---------- 角色切换条 ----------
+  function renderRoleBar() {
+    var bar = $('role-bar');
+    bar.querySelectorAll('.role-btn').forEach(function(b){ b.remove(); });
+    ACCOUNTS.forEach(function(a){
+      var btn = document.createElement('button');
+      btn.className = 'role-btn' + (state.user && state.user.account === a.account ? ' active' : '');
+      btn.textContent = a.name + ' ' + a.account;
+      btn.addEventListener('click', function(){
+        btn.disabled = true; btn.textContent = '切换中…';
+        doLogin(a.account, 'Aa@123456').then(function(){
+          log('切换身份 → ' + a.account, { status: 200, body: { ok: true, employee_id: a.id } });
+          if (state.docId) loadDoc();
+        }).catch(function(e){
+          log('切换身份失败 ' + a.account, { status: 401, body: { error: e.message } });
+        }).finally(function(){ renderRoleBar(); });
+      });
+      bar.appendChild(btn);
+    });
+  }
+
+  // ---------- 表单选项 ----------
+  function fillAccountOptions() {
+    var sel = $('f-applicant');
+    sel.innerHTML = '';
+    ACCOUNTS.forEach(function(a){
+      var o = document.createElement('option');
+      o.value = a.id; o.textContent = a.name + '(' + a.account + ')';
+      sel.appendChild(o);
+    });
+    var wrap = $('f-recipients');
+    wrap.innerHTML = '';
+    ACCOUNTS.forEach(function(a){
+      var lb = document.createElement('label');
+      var cb = document.createElement('input');
+      cb.type = 'checkbox'; cb.value = a.id; cb.dataset.units = a.units;
+      lb.appendChild(cb); lb.appendChild(document.createTextNode(a.name));
+      wrap.appendChild(lb);
+    });
+  }
+  function fillDepots() {
+    return fetchJson('/depots').then(function(res){
+      var items = (res.body && res.body.items) || [];
+      var sel = $('f-depot'), sel2 = $('inv-depot');
+      sel.innerHTML = ''; sel2.innerHTML = '';
+      items.forEach(function(d){
+        var o = document.createElement('option'); o.value = d.id; o.textContent = d.id + ' ' + d.name;
+        var o2 = o.cloneNode(true);
+        sel.appendChild(o); sel2.appendChild(o2);
+      });
+      log('GET /depots', res);
+    }).catch(function(){});
+  }
+  function fillItems() {
+    return fetchJson('/inventory').then(function(res){
+      var items = (res.body && res.body.items) || [];
+      var sel = $('f-item');
+      sel.innerHTML = '';
+      items.forEach(function(it){
+        var o = document.createElement('option');
+        o.value = it.item_id || it.id;
+        o.textContent = (it.item_id || it.id) + ' ' + it.name + '(库存' + it.stock + ')';
+        sel.appendChild(o);
+      });
+    }).catch(function(){});
+  }
+
+  // ---------- 单据 ----------
+  function loadDoc() {
+    var id = $('doc-id').value.trim();
+    if (!id) { state.doc = null; renderDocState(); return; }
+    fetchJson('/distribution/' + id).then(function(res){
+      log('GET /distribution/' + id, res);
+      if (res.ok) {
+        state.docId = id; state.doc = res.body.distribution;
+      } else {
+        state.doc = null;
+      }
+      renderDocState();
+    });
+  }
+  $('btn-load-doc').addEventListener('click', loadDoc);
+  $('doc-id').addEventListener('keydown', function(e){ if (e.key === 'Enter') loadDoc(); });
+
+  function renderDocState() {
+    var el = $('doc-state');
+    if (!state.doc) { el.innerHTML = '<span class="note">未载入单据</span>'; renderTransferList(); renderReceiveList(); return; }
+    var d = state.doc;
+    var html = '<span class="tag">' + escapeHtml(d.status) + '</span>' +
+      'step ' + (d.current_step || 0) + '/' + (d.total_steps || 4) +
+      ' · 申请人 ' + escapeHtml(d.applicant_id) + ' · 仓库 ' + escapeHtml(d.depot_id);
+    el.innerHTML = html;
+    renderTransferList();
+    renderReceiveList();
+  }
+
+  function renderTransferList() {
+    var el = $('transfer-list');
+    el.innerHTML = '';
+    if (!state.doc) { el.innerHTML = '<div class="note">先载入单据</div>'; return; }
+    (state.doc.recipients || []).forEach(function(r){
+      var row = document.createElement('div');
+      row.className = 'recip-row';
+      row.innerHTML = '<span>' + escapeHtml(String(r.employee_id)) + ' · ' + escapeHtml(r.units || '') + '</span>' +
+        '<span class="st">' + escapeHtml(r.status) + '</span>';
+      var btn = document.createElement('button');
+      btn.className = 'btn';
+      btn.textContent = '移交';
+      btn.disabled = (r.status !== '待接收');
+      btn.addEventListener('click', function(){
+        api('POST /distribution/' + state.docId + '/transfer', '/distribution/' + state.docId + '/transfer',
+          { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ recipient_id: r.employee_id }) })
+          .then(function(){ loadDoc(); });
+      });
+      row.appendChild(btn);
+      el.appendChild(row);
+    });
+  }
+
+  function renderReceiveList() {
+    var el = $('receive-list');
+    el.innerHTML = '';
+    if (!state.doc) { el.innerHTML = '<div class="note">先载入单据</div>'; return; }
+    (state.doc.recipients || []).forEach(function(r){
+      var row = document.createElement('div');
+      row.className = 'recip-row';
+      row.innerHTML = '<span>' + escapeHtml(String(r.employee_id)) + ' · ' + escapeHtml(r.units || '') + '</span>' +
+        '<span class="st">' + escapeHtml(r.status) + '</span>';
+      var bSelf = document.createElement('button');
+      bSelf.className = 'btn btn-primary'; bSelf.textContent = '本人签收';
+      bSelf.disabled = (r.status !== '已移交');
+      bSelf.addEventListener('click', function(){
+        api('签收(本人) POST /distribution/' + state.docId + '/receive',
+          '/distribution/' + state.docId + '/receive', { method: 'POST' })
+          .then(function(){ loadDoc(); });
+      });
+      var bProxy = document.createElement('button');
+      bProxy.className = 'btn'; bProxy.textContent = '代签(当前身份替 TA 签)';
+      bProxy.disabled = (r.status !== '已移交');
+      bProxy.addEventListener('click', function(){
+        api('签收(代签) POST /distribution/' + state.docId + '/receive',
+          '/distribution/' + state.docId + '/receive', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ recipient_id: r.employee_id })
+          }).then(function(){ loadDoc(); });
+      });
+      row.appendChild(bSelf); row.appendChild(bProxy);
+      el.appendChild(row);
+    });
+  }
+
+  // ---------- 统一按钮 → API ----------
+  function api(label, url, opts) {
+    return fetchJson(url, opts).then(function(res){
+      log(label, res);
+      return res;
+    });
+  }
+
+  // 1. 创建
+  $('btn-create').addEventListener('click', function(){
+    var applicants = $('f-applicant').value;
+    var checked = Array.prototype.slice.call(document.querySelectorAll('#f-recipients input:checked'));
+    if (checked.length === 0) { log('创建:未选择接收人', { status: 400, body: { error: '至少勾选一名接收人' } }); return; }
+    var recipients = checked.map(function(cb){
+      return { employee_id: Number(cb.value), units: cb.dataset.units, people_count: 1 };
+    });
+    var body = {
+      applicant_id: Number(applicants),
+      total_people: recipients.length,
+      depot_id: $('f-depot').value,
+      items: [{ item_id: $('f-item').value, per_person_qty: Number($('f-qty').value) || 1 }],
+      recipients: recipients
+    };
+    api('POST /distribution/requests', '/distribution/requests', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': 'drill-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8) },
+      body: JSON.stringify(body)
+    }).then(function(res){
+      if (res.ok && res.body && res.body.id) {
+        $('doc-id').value = res.body.id;
+        loadDoc();
+      }
+    });
+  });
+
+  // 2/3/6. 审批 / 出库 / 推进
+  $('btn-approve').addEventListener('click', function(){
+    api('POST /distribution/' + state.docId + '/approve', '/distribution/' + state.docId + '/approve', { method: 'POST' })
+      .then(function(){ loadDoc(); });
+  });
+  $('btn-issue').addEventListener('click', function(){
+    api('POST /distribution/' + state.docId + '/issue', '/distribution/' + state.docId + '/issue', { method: 'POST' })
+      .then(function(){ loadDoc(); });
+  });
+  [['btn-adv2', 2], ['btn-adv3', 3], ['btn-adv4', 4]].forEach(function(pair){
+    $(pair[0]).addEventListener('click', function(){
+      api('POST /distribution/' + state.docId + '/advance', '/distribution/' + state.docId + '/advance', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ step: pair[1] })
+      }).then(function(){ loadDoc(); });
+    });
+  });
+
+  // 7. 审计
+  $('btn-verify-one').addEventListener('click', function(){
+    api('GET /audit/chain', '/audit/chain?ref_type=distribution&ref_id=' + state.docId);
+  });
+  $('btn-verify-all').addEventListener('click', function(){
+    api('GET /audit/verify-all', '/audit/verify-all');
+  });
+  $('btn-events').addEventListener('click', function(){
+    api('GET /audit/events', '/audit/events?ref_type=distribution&ref_id=' + state.docId);
+  });
+
+  // 8. 库存
+  $('btn-inventory').addEventListener('click', function(){
+    fetchJson('/inventory?depot_id=' + $('inv-depot').value).then(function(res){
+      log('GET /inventory', res);
+      var items = (res.body && res.body.items) || [];
+      var html = '<table><tr><th>编号</th><th>名称</th><th>库存</th><th>下限</th><th>状态</th></tr>';
+      items.forEach(function(it){
+        var low = it.is_low || (it.stock <= it.min_stock);
+        html += '<tr><td>' + escapeHtml(it.item_id || it.id) + '</td><td>' + escapeHtml(it.name) +
+          '</td><td>' + it.stock + '</td><td>' + it.min_stock + '</td><td>' +
+          (low ? '<span style="color:var(--danger)">偏低</span>' : '<span style="color:var(--success)">正常</span>') +
+          '</td></tr>';
+      });
+      $('inv-table').innerHTML = html + '</table>';
+    });
+  });
+
+  $('btn-logout').addEventListener('click', function(){
+    fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' })
+      .then(function(){ showLogin(); });
+  });
+
+  // ---------- 启动 ----------
+  fillAccountOptions();
+  loadMe();
+})();
+</script>
+</body>
+</html>

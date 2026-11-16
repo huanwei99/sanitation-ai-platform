@@ -1,0 +1,44 @@
+[
+  {
+    "step": "login",
+    "user": "演练-库管员 (DRILL-KEEPER / 9001)"
+  },
+  {
+    "step": "create",
+    "docId": "MD-2026-0001",
+    "docState": "待审批step 0/4 · 申请人 9003 · 仓库 DP-001",
+    "consoleHead": "20:35:58GET /distribution/MD-2026-0001 → HTTP 200{\n  \"ok\": true,\n  \"distribution\": {\n    \"id\": \"MD-2026-0001\",\n    \"applicant_id\": 9003,\n    \"department\": null,\n    \"requested_at\": \"2026-11-16 12:35:58\",\n    \"scope\": \"all\",\n    \"scope_desc\": null,\n    \"total_p"
+  },
+  {
+    "step": "approve",
+    "state": "已批准step 1/4 · 申请人 9003 · 仓库 DP-001"
+  },
+  {
+    "step": "issue",
+    "state": "发放中step 1/4 · 申请人 9003 · 仓库 DP-001"
+  },
+  {
+    "step": "transfer",
+    "remaining": 1
+  },
+  {
+    "step": "self-sign",
+    "click": "clicked",
+    "state": "发放中step 1/4 · 申请人 9003 · 仓库 DP-001",
+    "consoleHead": "20:36:05GET /distribution/MD-2026-0001 → HTTP 200{\n  \"ok\": true,\n  \"distribution\": {\n    \"id\": \"MD-2026-0001\",\n    \"applicant_id\": 9003,\n    \"department\": null,\n    \"requested_at\": \"2026-11-16 12:35:5"
+  },
+  {
+    "step": "proxy-sign",
+    "click": "clicked",
+    "state": "发放中step 1/4 · 申请人 9003 · 仓库 DP-001",
+    "consoleHead": "20:36:06GET /distribution/MD-2026-0001 → HTTP 200{\n  \"ok\": true,\n  \"distribution\": {\n    \"id\": \"MD-2026-0001\",\n    \"applicant_id\": 9003,\n    \"department\": null,\n    \"requested_at\": \"2026-11-16 12:35:5"
+  },
+  {
+    "step": "advance",
+    "state": "已完成step 4/4 · 申请人 9003 · 仓库 DP-001"
+  },
+  {
+    "step": "audit",
+    "consoleHead": "20:36:11GET /audit/verify-all → HTTP 200{\n  \"ok\": true,\n  \"all_ok\": true,\n  \"chains\": 1,\n  \"broken\": 0,\n  \"results\": [\n    {\n      \"ref_type\": \"distribution\",\n      \"ref_id\": \"MD-2026-0001\",\n      \"ok\": true,\n      \"events\": 10,\n      \"broken_at\": null,\n      \"reason\": null\n    }\n  ]\n}20:36:10GET /a"
+  }
+]

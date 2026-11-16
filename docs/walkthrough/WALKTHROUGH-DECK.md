@@ -14,6 +14,7 @@
 | 数据 | SQLite WAL(`server/data/warehouse.db`),种子 `node server/seed-drill.js` |
 | 驱动 | Edge headless + CDP,脚本 [`shoot.js`](shoot.js) —— 真实点击按钮、真实 fetch 会话 |
 | 复跑 | `node docs/walkthrough/shoot.js`(约 20 秒,产出 8 张截图 + [`flow-transcript.json`](flow-transcript.json)) |
+| 演练控制台 | [`drill-console.html`](../../drill-console.html) —— 管理端八步(创建/审批/出库/移交/签收/推进/审计/库存)全点击,响应原文右侧可见;驱动脚本 [`shoot-console.js`](shoot-console.js)(产出 6 张截图 + [`console-transcript.json`](console-transcript.json)) |
 
 **怎么起服务(开会当天照做):**
 
@@ -127,6 +128,16 @@ GET /reports/low-stock       → 0 条(无低库存)
 
 `config.html` —— 代签白名单等策略在线可改、即时生效(P0-T02)。
 
+### ⑰ 演练控制台(管理端八步,全程点击)
+![控制台主界面](10-console-main.png) ![创建完成](11-console-created.png) ![审计校验](13-console-audit.png)
+
+`drill-console.html` —— ③④⑤ 等管理端环节不再是"只能敲 API":创建(带 Idempotency-Key)→ 审批 → 出库 →
+逐人移交 → 本人签/白名单代签 → 推进 step2-4 → 审计链校验 → 库存快照,全部是真实按钮;
+顶部一键切换四个演练身份,右侧暗色控制台显示每次 API 的响应原文。
+
+预演实况([`console-transcript.json`](console-transcript.json)):MD-2026-0001 创建→审批→出库→移交→
+本人签+代签→已完成 4/4,`/audit/verify-all` `all_ok=true`(1 链 10 事件)。
+
 ---
 
 ## 2. 结论:演练闭环走得通
@@ -148,10 +159,10 @@ GET /reports/low-stock       → 0 条(无低库存)
 
 1. ✅ **P1-T05 已交付**(`72c2174`):离线队列 / 下拉刷新 / 通知 —— 与 P0-T03 服务端 outbox 合起来,弱网签收闭环可用。
    注意口径:用的是 **localStorage**,不是任务定义里写的 IndexedDB —— 功能等价,正式版建议换 IndexedDB。
-2. 🔴 **管理端没有后端 UI**:`index.html`(627KB 原型)和 `mobile.html` 是纯内存数据的演示原型,**不连后端**;
-   真正连后端的页面只有 `mobile-sign.html`(签收)和 `config.html`(策略)。
-   → 会上"创建/审批/出库"这些环节只能走 API(curl/Postman)。
-   → **建议**:会前补一个"演练控制台"单页(按钮调真实 API,半天工作量),让 Daniel 全程点击操作,不用敲命令。
+2. ✅ **管理端后端 UI 已补**([`drill-console.html`](../../drill-console.html),Qoder,CDP 实跑验证):
+   管理端八步全部可点击、响应原文可见 —— 走查会上 Daniel 无需敲任何命令。
+   (注:`index.html` / `mobile.html` 仍是纯原型,与后端无关;真正连后端的页面 =
+   `mobile-sign.html`(签收)、`config.html`(策略)、`depot-console.html`(多仓)、`drill-console.html`(演练工具)。)
 3. 🟡 **文档过期数字**(已修正):DRILL-SCRIPT §0.3 写"31 pass"、DEPLOYMENT §6.1 写"54 pass",实际 **137 server + 22 foundation = 159**。
 4. 🟡 **演练种子权限缺口**(已修 `seed-drill.js`):库管员原只有 `inventory:edit`,报表接口要 `view` → 全 403;
    现已补 `view`,报表 200。这类"种子与接口对不齐"的坑,只有真跑一遍才暴露。
@@ -165,7 +176,36 @@ GET /reports/low-stock       → 0 条(无低库存)
 | 1 | 服务能按 DEPLOYMENT 起来(已预演) | ✅ 本次验证 | – |
 | 2 | 种子数据 + 权限可走全程(已预演) | ✅ 本次验证 | – |
 | 3 | 备份恢复演练(**删库 → 恢复 → 服务正常**) | ✅ **已完成**(2026-11-16 实测 < 2 分钟,DEPLOYMENT §11) | – |
-| 4 | 演练控制台单页(管理端点击操作) | 🟡 待 Daniel 定夺是否做 | – |
+| 4 | 演练控制台单页(管理端点击操作) | ✅ **已完成** | `drill-console.html` 八步全点击;CDP 实跑全链 `verify_all=true` |
 | 5 | 真人(非开发)走一遍 DRILL-SCRIPT | 🔴 **未做** | 11-26 冻结前 |
 | 6 | 手机同网段访问验证(真人手机) | 🟡 会上第一件事 | Daniel |
 | 7 | 演练库重置脚本/流程(`rm warehouse.db*` → 重灌) | ✅ 已有(DEPLOYMENT §8) | – |
+
+---
+
+## 5. 会上需 Daniel 拍板/验收的三件事(简报)
+
+### ① 多仓 UI(P1-T07)验收
+
+| 项 | 内容 |
+|---|---|
+| 交付 | `depot-console.html`(`c4bc47b`):仓切换卡片 + 汇总卡(项数/总库存/总值/低库存)+ 按仓库存表 + 低库存高亮;后端 `GET /depots` + `GET /inventory?depot_id=` |
+| 验收标准 | 任务定义:"各仓库存独立可查" |
+| 实测 | 仓切换与按仓表格正常,数据来自真实接口 |
+| 待定 | 未登录时跳转 `index.html`(纯原型,不能真实登录)—— 建议把跳转目标改成有真实登录的页面(约 10 行),或纳入后续管理端统一入口 |
+
+### ② 演练控制台验收(已按 Daniel 拍板建好)
+
+| 项 | 内容 |
+|---|---|
+| 交付 | `drill-console.html`:八步全点击 + 一键切换四个演练身份 + 响应原文控制台;`shoot-console.js` CDP 实跑:MD-2026-0001 全链 + 审计 `all_ok=true` |
+| 会上动作 | Daniel 亲手点一遍 创建→审批→出库→签收,确认与业务口径一致 |
+| 定位 | 演练/走查专用工具页,**不是**生产界面(页面顶部已标注) |
+
+### ③ 离线队列口径(P0-T03):localStorage vs IndexedDB
+
+| 项 | 内容 |
+|---|---|
+| 现状 | 服务端 outbox + 幂等重放已交付;前端队列由 P1-T05 用 **localStorage** 实现(任务定义写的是 IndexedDB) |
+| 差异 | 功能等价:入队/自动重放/防重复扣减都有;localStorage 容量小(约 5MB)且同步读写,IndexedDB 容量大且异步 |
+| 建议 | **演练期接受 localStorage 口径**(不阻塞 Go/No-Go),正式版迁移 IndexedDB —— 进备选池(DEMAND-POOL §D) |
