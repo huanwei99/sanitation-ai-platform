@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>多仓控制台 · 环卫 AI 平台</title>
+  <style>
+    :root {
+      --primary: #1677ff; --primary-bg: #e6f4ff; --success: #52c41a;
+      --warning: #faad14; --danger: #ff4d4f; --border: #d9d9d9;
+      --text-primary: #000000e0; --text-secondary: #00000073;
+      --bg-page: #f5f5f5; --bg-white: #fff; --radius: 8px;
+      --shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI',
+                   'PingFang SC', 'Microsoft YaHei', sans-serif;
+      font-size:14px; color:var(--text-primary); background:var(--bg-page);
+      line-height:1.5714; padding-bottom:40px;
+    }
+    .header {
+      background:var(--bg-white); border-bottom:1px solid var(--border);
+      padding:16px 24px; display:flex; justify-content:space-between;
+      align-items:center; box-shadow:var(--shadow); position:sticky; top:0; z-index:10;
+    }
+    .header h1 { font-size:18px; font-weight:600; }
+    .header .user { color:var(--text-secondary); font-size:13px; margin-right:16px; }
+    .header .actions { display:flex; gap:12px; align-items:center; }
+    .btn {
+      padding:6px 14px; border:1px solid var(--border); background:var(--bg-white);
+      border-radius:var(--radius); cursor:pointer; font-size:13px; transition:all 0.2s;
+    }
+    .btn:hover { border-color:var(--primary); color:var(--primary); }
+    .btn-primary {
+      background:var(--primary); color:#fff; border-color:var(--primary);
+    }
+    .btn-primary:hover { background:#4096ff; color:#fff; }
+    .container { max-width:1400px; margin:24px auto; padding:0 24px; }
+
+    /* 过滤条 */
+    .filter-bar {
+      background:var(--bg-white); border-radius:var(--radius);
+      padding:16px 20px; box-shadow:var(--shadow);
+      display:flex; gap:16px; flex-wrap:wrap; align-items:flex-end;
+      margin-bottom:20px;
+    }
+    .filter-group { display:flex; flex-direction:column; gap:6px; }
+    .filter-group label { font-size:12px; color:var(--text-secondary); font-weight:500; }
+    .filter-group select, .filter-group input {
+      padding:6px 10px; border:1px solid var(--border); border-radius:var(--radius);
+      font-size:13px; background:#fff; min-width:160px;
+    }
+    .filter-group select:focus, .filter-group input:focus {
+      outline:none; border-color:var(--primary);
+    }
+
+    /* 仓库切换器(大块) */
+    .depot-switcher {
+      background:var(--bg-white); border-radius:var(--radius);
+      padding:20px; box-shadow:var(--shadow); margin-bottom:20px;
+    }
+    .depot-switcher h2 { font-size:16px; margin-bottom:14px; font-weight:600; }
+    .depot-cards { display:flex; gap:12px; flex-wrap:wrap; }
+    .depot-card {
+      padding:14px 20px; border:2px solid var(--border); border-radius:var(--radius);
+      cursor:pointer; transition:all 0.2s; flex:1; min-width:200px;
+    }
+    .depot-card:hover { border-color:var(--primary); }
+    .depot-card.active { border-color:var(--primary); background:var(--primary-bg); }
+    .depot-card .id { font-size:12px; color:var(--text-secondary); }
+    .depot-card .name { font-size:16px; font-weight:600; margin:2px 0; }
+    .depot-card .stats { font-size:12px; color:var(--text-secondary); }
+    .depot-card .stats span { margin-right:12px; }
+
+    /* 汇总卡 */
+    .summary-grid {
+      display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));
+      gap:16px; margin-bottom:20px;
+    }
+    .summary-card {
+      background:var(--bg-white); border-radius:var(--radius);
+      padding:16px 20px; box-shadow:var(--shadow);
+    }
+    .summary-card .label { font-size:12px; color:var(--text-secondary); }
+    .summary-card .value {
+      font-size:24px; font-weight:600; margin-top:4px; color:var(--primary);
+    }
+    .summary-card .value.danger { color:var(--danger); }
+    .summary-card .value.warning { color:var(--warning); }
+    .summary-card .value.success { color:var(--success); }
+
+    /* 表格 */
+    .table-card {
+      background:var(--bg-white); border-radius:var(--radius);
+      box-shadow:var(--shadow); overflow:hidden;
+    }
+    .table-card .title {
+      padding:14px 20px; border-bottom:1px solid var(--border);
+      font-weight:600; display:flex; justify-content:space-between;
+      align-items:center;
+    }
+    .table-card .title .count { color:var(--text-secondary); font-weight:400; font-size:13px; }
+    table { width:100%; border-collapse:collapse; }
+    th, td {
+      padding:10px 16px; text-align:left; border-bottom:1px solid #f0f0f0;
+      font-size:13px;
+    }
+    th {
+      background:#fafafa; font-weight:600; font-size:12px;
+      color:var(--text-secondary); text-transform:uppercase;
+    }
+    tbody tr:hover { background:#fafafa; }
+    tbody tr:last-child td { border-bottom:none; }
+    .tag {
+      display:inline-block; padding:2px 8px; border-radius:4px;
+      font-size:11px; font-weight:600;
+    }
+    .tag-danger { background:#fff2f0; color:var(--danger); }
+    .tag-warning { background:#fffbe6; color:var(--warning); }
+    .tag-success { background:#f6ffed; color:var(--success); }
+    .tag-info { background:var(--primary-bg); color:var(--primary); }
+    .empty { padding:40px; text-align:center; color:var(--text-secondary); }
+    .loading { padding:20px; text-align:center; color:var(--text-secondary); }
+    .error {
+      background:#fff2f0; border:1px solid #ffccc7; color:var(--danger);
+      padding:12px 20px; border-radius:var(--radius); margin-bottom:16px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div>
+      <h1>多仓控制台</h1>
+      <div class="user" style="margin-top:4px;" id="user-info"></div>
+    </div>
+    <div class="actions">
+      <button class="btn" id="btn-refresh">刷新</button>
+      <button class="btn" id="btn-logout">退出登录</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <div id="error-bar"></div>
+
+    <!-- 仓库切换卡片 -->
+    <div class="depot-switcher">
+      <h2>选择仓库</h2>
+      <div class="depot-cards" id="depot-cards"></div>
+    </div>
+
+    <!-- 过滤条 -->
+    <div class="filter-bar">
+      <div class="filter-group">
+        <label>仓库</label>
+        <select id="filter-depot"><option value="">全部仓库</option></select>
+      </div>
+      <div class="filter-group">
+        <label>类别</label>
+        <select id="filter-category">
+          <option value="">全部</option>
+          <option value="consumable">消耗品</option>
+          <option value="tool">工具</option>
+          <option value="spare">配件</option>
+          <option value="office">办公</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>物资编号</label>
+        <input type="text" id="filter-item-id" placeholder="如 INV-001">
+      </div>
+      <button class="btn btn-primary" id="btn-query">查询</button>
+      <button class="btn" id="btn-reset">重置</button>
+    </div>
+
+    <!-- 汇总 -->
+    <div class="summary-grid" id="summary-grid"></div>
+
+    <!-- 主表 -->
+    <div class="table-card">
+      <div class="title">
+        <span>库存视图</span>
+        <span class="count" id="table-count">—</span>
+      </div>
+      <div id="table-body"></div>
+    </div>
+  </div>
+
+  <script>
+  (function(){
+    'use strict';
+    var $ = function(id){ return document.getElementById(id); };
+    var state = {
+      depots: [],
+      currentDepot: '',   // 当前选中仓('' = 全部)
+      user: null,
+    };
+
+    // ---- fetch helper ----
+    function fetchJson(url, opts) {
+      opts = opts || {};
+      opts.credentials = 'same-origin';
+      return fetch(url, opts).then(function(r){
+        return r.json().then(function(b){
+          return { ok: r.ok, status: r.status, body: b };
+        });
+      });
+    }
+    function showError(msg) {
+      $('error-bar').innerHTML = '<div class="error">' + escapeHtml(msg) + '</div>';
+    }
+    function clearError() { $('error-bar').innerHTML = ''; }
+    function escapeHtml(s) {
+      return String(s==null?'':s).replace(/[&<>"]/g, function(c){
+        return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];
+      });
+    }
+    function fmtMoney(fen) {
+      if (fen == null) return '-';
+      return '¥' + (fen / 100).toLocaleString('zh-CN', { maximumFractionDigits:2 });
+    }
+
+    // ---- 初始化:加载仓库列表 ----
+    function loadDepots() {
+      return fetchJson('/depots').then(function(res){
+        if (!res.ok) throw new Error(res.body.error || '加载仓库失败');
+        state.depots = res.body.items || [];
+        renderDepotCards();
+        renderDepotSelect();
+      });
+    }
+
+    function renderDepotCards() {
+      var wrap = $('depot-cards');
+      wrap.innerHTML = '';
+      // "全部仓库" 卡片
+      var allCard = document.createElement('div');
+      allCard.className = 'depot-card' + (state.currentDepot === '' ? ' active' : '');
+      allCard.innerHTML =
+        '<div class="id">—</div>' +
+        '<div class="name">全部仓库</div>' +
+        '<div class="stats">查看所有仓汇总</div>';
+      allCard.addEventListener('click', function(){
+        state.currentDepot = '';
+        $('filter-depot').value = '';
+        renderDepotCards();
+        loadInventory();
+      });
+      wrap.appendChild(allCard);
+
+      state.depots.forEach(function(d){
+        var card = document.createElement('div');
+        card.className = 'depot-card' + (state.currentDepot === d.id ? ' active' : '');
+        card.innerHTML =
+          '<div class="id">' + escapeHtml(d.id) + '</div>' +
+          '<div class="name">' + escapeHtml(d.name) + '</div>' +
+          '<div class="stats">' + (d.is_active ? '<span class="tag tag-success">启用</span>' : '<span class="tag tag-warning">停用</span>') + '</div>';
+        card.addEventListener('click', function(){
+          state.currentDepot = d.id;
+          $('filter-depot').value = d.id;
+          renderDepotCards();
+          loadInventory();
+        });
+        wrap.appendChild(card);
+      });
+    }
+
+    function renderDepotSelect() {
+      var sel = $('filter-depot');
+      sel.innerHTML = '<option value="">全部仓库</option>';
+      state.depots.forEach(function(d){
+        var opt = document.createElement('option');
+        opt.value = d.id;
+        opt.textContent = d.id + ' - ' + d.name;
+        sel.appendChild(opt);
+      });
+      sel.value = state.currentDepot;
+    }
+
+    // ---- 加载库存(按当前仓) ----
+    function loadInventory() {
+      clearError();
+      var q = [];
+      if (state.currentDepot) q.push('depot_id=' + encodeURIComponent(state.currentDepot));
+      var cat = $('filter-category').value;
+      if (cat) q.push('category=' + encodeURIComponent(cat));
+      var itemId = $('filter-item-id').value.trim();
+      if (itemId) q.push('item_id=' + encodeURIComponent(itemId));
+      var url = '/inventory' + (q.length ? '?' + q.join('&') : '');
+
+      $('table-body').innerHTML = '<div class="loading">加载中…</div>';
+      return fetchJson(url).then(function(res){
+        if (!res.ok) {
+          if (res.status === 403) {
+            $('table-body').innerHTML = '<div class="empty">无库存查看权限</div>';
+            return;
+          }
+          throw new Error(res.body.error || '加载库存失败');
+        }
+        renderSummary(res.body.summary);
+        renderTable(res.body.items);
+      }).catch(function(e){
+        showError(e.message);
+        $('table-body').innerHTML = '<div class="empty">加载失败: ' + escapeHtml(e.message) + '</div>';
+      });
+    }
+
+    function renderSummary(s) {
+      var grid = $('summary-grid');
+      grid.innerHTML = '';
+      if (!s) { grid.style.display = 'none'; return; }
+      grid.style.display = 'grid';
+      var cards = [
+        { label: '物资项数', value: s.total_items, cls: '' },
+        { label: '总库存量', value: s.total_stock, cls: 'success' },
+        { label: '库存总值(成本)', value: fmtMoney(s.total_value), cls: 'success' },
+      ];
+      // 计算低库存数量(前端从 items 统计)
+      var items = Array.isArray(window._lastItems) ? window._lastItems : [];
+      var lowCount = 0;
+      // 用 fetch 之后再统计(items 由 renderTable 缓存)
+      cards.forEach(function(c){
+        var el = document.createElement('div');
+        el.className = 'summary-card';
+        el.innerHTML =
+          '<div class="label">' + c.label + '</div>' +
+          '<div class="value ' + c.cls + '">' + escapeHtml(c.value) + '</div>';
+        grid.appendChild(el);
+      });
+    }
+
+    function renderTable(items) {
+      window._lastItems = items || [];
+      $('table-count').textContent = '共 ' + items.length + ' 项';
+      var body = $('table-body');
+      if (items.length === 0) {
+        body.innerHTML = '<div class="empty">当前筛选无数据</div>';
+        // 仍渲染汇总低库存卡
+        renderSummaryExtra(0);
+        return;
+      }
+      var low = items.filter(function(i){ return i.is_low; }).length;
+      renderSummaryExtra(low);
+
+      var html = '<table><thead><tr>' +
+        '<th>物资</th><th>编号</th><th>类别</th><th>仓库</th>' +
+        '<th>库存</th><th>单位</th><th>单价</th><th>库存价值</th><th>状态</th>' +
+        '</tr></thead><tbody>';
+      items.forEach(function(i){
+        var statusTag = i.is_low
+          ? '<span class="tag tag-danger">低库存</span>'
+          : '<span class="tag tag-success">正常</span>';
+        html += '<tr>' +
+          '<td>' + escapeHtml(i.name) + (i.spec ? '<br><small style="color:#999">' + escapeHtml(i.spec) + '</small>' : '') + '</td>' +
+          '<td><code>' + escapeHtml(i.id) + '</code></td>' +
+          '<td>' + escapeHtml(categoryLabel(i.category)) + '</td>' +
+          '<td>' + escapeHtml(i.depot_id + ' - ' + (i.depot_name || '')) + '</td>' +
+          '<td><strong>' + i.stock + '</strong> <small style="color:#999">/ 最低 ' + i.min_stock + '</small></td>' +
+          '<td>' + escapeHtml(i.unit) + '</td>' +
+          '<td>' + fmtMoney(i.unit_cost) + '</td>' +
+          '<td>' + fmtMoney(i.stock_value) + '</td>' +
+          '<td>' + statusTag + '</td>' +
+          '</tr>';
+      });
+      html += '</tbody></table>';
+      body.innerHTML = html;
+    }
+
+    function renderSummaryExtra(lowCount) {
+      var grid = $('summary-grid');
+      // 替换第 4 个卡片(或追加低库存卡)
+      var existing = grid.querySelector('.low-card');
+      if (existing) existing.remove();
+      if (lowCount > 0) {
+        var el = document.createElement('div');
+        el.className = 'summary-card low-card';
+        el.innerHTML =
+          '<div class="label">低库存预警</div>' +
+          '<div class="value danger">' + lowCount + '</div>';
+        grid.appendChild(el);
+      }
+    }
+
+    function categoryLabel(c) {
+      var m = { consumable:'消耗品', tool:'工具', spare:'配件', office:'办公' };
+      return m[c] || c;
+    }
+
+    // ---- 事件绑定 ----
+    $('btn-query').addEventListener('click', loadInventory);
+    $('btn-refresh').addEventListener('click', function(){ loadDepots(); loadInventory(); });
+    $('btn-reset').addEventListener('click', function(){
+      state.currentDepot = '';
+      $('filter-depot').value = '';
+      $('filter-category').value = '';
+      $('filter-item-id').value = '';
+      renderDepotCards();
+      loadInventory();
+    });
+    $('filter-depot').addEventListener('change', function(){
+      state.currentDepot = this.value;
+      renderDepotCards();
+      loadInventory();
+    });
+    $('btn-logout').addEventListener('click', function(){
+      fetch('/auth/logout', { method:'POST', credentials:'same-origin' })
+        .then(function(){ window.location.href = 'index.html'; });
+    });
+
+    // ---- 启动:探测会话 + 加载 ----
+    fetchJson('/auth/me').then(function(res){
+      if (!res.ok) {
+        window.location.href = 'index.html';
+        return;
+      }
+      state.user = res.body.employee;
+      $('user-info').textContent = state.user.name + ' (' + state.user.account + ')';
+      return loadDepots().then(loadInventory);
+    }).catch(function(){
+      window.location.href = 'index.html';
+    });
+  })();
+  </script>
+</body>
+</html>

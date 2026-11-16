@@ -16,6 +16,49 @@ async function registerReportRoutes(app) {
 
   const preAuth = { preValidation: [app.authenticate] };
 
+  // ---- 仓库列表(P1-T07 多仓 UI:仓选择器数据源) ----
+  app.get('/depots', preAuth, async (req, reply) => {
+    const depots = app.db.prepare(
+      `SELECT id, name, is_active FROM depot ORDER BY id`
+    ).all();
+    return reply.send({ ok: true, items: depots });
+  });
+
+  // ---- 按仓库存视图(P1-T07 多仓 UI:主表) ----
+  app.get('/inventory', preAuth, async (req, reply) => {
+    if (!auth.hasPermission(app.db, req.principal, 'inventory', 'view', null)) {
+      return reply.code(403).send({ ok: false, error: '无库存查看权限' });
+    }
+    const q = req.query || {};
+    const where = [];
+    const params = [];
+    if (q.depot_id) { where.push('i.depot_id = ?'); params.push(q.depot_id); }
+    if (q.item_id) { where.push('i.id = ?'); params.push(q.item_id); }
+    if (q.category) { where.push('i.category = ?'); params.push(q.category); }
+    const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+
+    const items = app.db.prepare(
+      `SELECT i.id, i.name, i.spec, i.category, i.unit, i.stock, i.min_stock,
+              i.unit_cost, i.location, i.depot_id, d.name AS depot_name,
+              CASE WHEN i.stock <= i.min_stock THEN 1 ELSE 0 END AS is_low,
+              (i.stock * 1.0 * i.unit_cost) AS stock_value
+         FROM inventory_item i
+         LEFT JOIN depot d ON d.id = i.depot_id
+         ${whereSql}
+         ORDER BY i.depot_id ASC, i.id ASC`
+    ).all(...params);
+
+    // 汇总:总项/总库存/总价值
+    const summary = app.db.prepare(
+      `SELECT COUNT(*) AS total_items,
+              COALESCE(SUM(i.stock), 0) AS total_stock,
+              COALESCE(SUM(i.stock * i.unit_cost), 0) AS total_value
+         FROM inventory_item i ${whereSql}`
+    ).get(...params);
+
+    return reply.send({ ok: true, items, summary });
+  });
+
   // ---- 库存流水 ----
   app.get('/reports/stock-movements', preAuth, async (req, reply) => {
     if (!auth.hasPermission(app.db, req.principal, 'inventory', 'view', null)) {
