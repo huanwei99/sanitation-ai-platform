@@ -114,9 +114,8 @@ async function createDistribution(app, req, reply) {
     if (!item_id || !per_person_qty || per_person_qty < 1) {
       throw new Error(`第 ${idx + 1} 行 item_id/per_person_qty 非法`);
     }
-    const inv = app.db.prepare('SELECT unit_cost, stock, depot_id FROM inventory_item WHERE id = ?').get(item_id);
-    if (!inv) throw new Error(`物资 ${item_id} 不存在`);
-    if (inv.depot_id !== depot_id) throw new Error(`物资 ${item_id} 不在仓库 ${depot_id}`);
+    const inv = app.db.prepare('SELECT unit_cost, stock FROM inventory_item WHERE id = ? AND depot_id = ?').get(item_id, depot_id);
+    if (!inv) throw new Error(`物资 ${item_id} 不在仓库 ${depot_id}`);
     const qty = per_person_qty * total_people;
     total_cost += qty * inv.unit_cost;
     return { line_no: idx + 1, item_id, per_person_qty, qty };
@@ -236,8 +235,8 @@ async function issueDistribution(app, req, reply) {
   try {
     app.db.transaction(() => {
       for (const ln of lines) {
-        const inv = app.db.prepare('SELECT stock FROM inventory_item WHERE id = ?').get(ln.item_id);
-        if (!inv) throw new ApiError(404, { ok: false, error: `物资 ${ln.item_id} 不存在` });
+        const inv = app.db.prepare('SELECT stock FROM inventory_item WHERE id = ? AND depot_id = ?').get(ln.item_id, dist.depot_id);
+        if (!inv) throw new ApiError(404, { ok: false, error: `物资 ${ln.item_id} 不在仓库 ${dist.depot_id}` });
         if (inv.stock < ln.qty) {
           throw new ApiError(409, {
             ok: false, error: `物资 ${ln.item_id} 库存不足`,
@@ -246,17 +245,17 @@ async function issueDistribution(app, req, reply) {
         }
         const updated = app.db.prepare(
           `UPDATE inventory_item SET stock = stock - ?, updated_at = CURRENT_TIMESTAMP
-           WHERE id = ? AND stock >= ?`
-        ).run(ln.qty, ln.item_id, ln.qty);
+           WHERE id = ? AND depot_id = ? AND stock >= ?`
+        ).run(ln.qty, ln.item_id, dist.depot_id, ln.qty);
         if (updated.changes === 0) {
-          const cur = app.db.prepare('SELECT stock FROM inventory_item WHERE id = ?').get(ln.item_id);
+          const cur = app.db.prepare('SELECT stock FROM inventory_item WHERE id = ? AND depot_id = ?').get(ln.item_id, dist.depot_id);
           throw new ApiError(409, {
             ok: false, error: `物资 ${ln.item_id} 库存不足`,
             item_id: ln.item_id, available: cur ? cur.stock : 0, requested: ln.qty,
           });
         }
 
-        const item = app.db.prepare('SELECT stock FROM inventory_item WHERE id = ?').get(ln.item_id);
+        const item = app.db.prepare('SELECT stock FROM inventory_item WHERE id = ? AND depot_id = ?').get(ln.item_id, dist.depot_id);
         app.db.prepare(
           `INSERT INTO stock_movement (item_id, delta, reason, ref_type, ref_id, line_no, qty_after, actor_id, depot_id)
            VALUES (?, ?, 'distribution_out', 'distribution', ?, ?, ?, ?, ?)`

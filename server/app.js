@@ -10,6 +10,7 @@ const { registerDistributionRoutes } = require('./distribution');
 const { registerAuditRoutes } = require('./audit');
 const { registerOrgPolicyRoutes } = require('./org-policy-routes');
 const { registerOutboxRoutes } = require('./outbox');
+const { registerDepotTransferRoutes } = require('./depot-transfer');
 
 async function buildApp(opts = {}) {
   let fastify;
@@ -75,6 +76,9 @@ async function buildApp(opts = {}) {
 
   // ---- 离线 outbox 重放(P0-T03):断网操作联网后批量回放,幂等去重 ----
   await registerOutboxRoutes(fastify);
+
+  // ---- 仓间调拨(P0-T04):移出+移入两步,各记流水 ----
+  await registerDepotTransferRoutes(fastify);
 
   // ---- 静态文件托管(同源方案,替代后续 Caddy 直接 serve) ----
   // Phase-0 架构要求:生产环境由 Caddy 托管静态文件,
