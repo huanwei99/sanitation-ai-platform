@@ -31,6 +31,31 @@
            font-size:13px; max-width:80%; text-align:center; opacity:0; transition:opacity 0.3s;
            pointer-events:none; z-index:1000; }
   .toast.show { opacity:1; }
+  /* P1-T05: 离线队列/下拉刷新/通知 */
+  .net-badge { display:inline-block; padding:2px 8px; border-radius:10px;
+               font-size:11px; font-weight:600; margin-left:8px; vertical-align:middle; }
+  .net-badge.online { background:#34a853; color:#fff; }
+  .net-badge.offline { background:#ea4335; color:#fff; }
+  .queue-bar { background:#fff8e1; border-bottom:1px solid #f0e0a0;
+               padding:8px 16px; font-size:12px; color:#5d4037;
+               display:flex; justify-content:space-between; align-items:center; }
+  .queue-bar .btn-replay { background:#f9ab00; color:#fff; border:none;
+                           padding:4px 10px; border-radius:4px; font-size:11px; cursor:pointer; }
+  .queue-bar .btn-replay:disabled { background:#ccc; cursor:not-allowed; }
+  .pull-hint { text-align:center; font-size:12px; color:#999; padding:8px 0;
+               transition:transform 0.2s; }
+  .pull-hint.refreshing { color:#1a73e8; }
+  .notif { position:fixed; top:16px; right:16px; z-index:1001;
+           background:#fff; border-left:4px solid #1a73e8; border-radius:4px;
+           padding:10px 14px; box-shadow:0 2px 8px rgba(0,0,0,0.12);
+           max-width:280px; font-size:13px; opacity:0; transform:translateX(20px);
+           transition:opacity 0.3s, transform 0.3s; pointer-events:none; }
+  .notif.show { opacity:1; transform:translateX(0); }
+  .notif.success { border-left-color:#34a853; }
+  .notif.error { border-left-color:#ea4335; }
+  .card .badge-queued { background:#f9ab00; color:#fff; padding:2px 8px;
+                        border-radius:10px; font-size:11px; margin-left:8px; }
+  .card .btn-receive:disabled { background:#ccc; cursor:not-allowed; }
   /* Login */
   .login-wrap { max-width:360px; margin:60px auto; padding:0 20px; }
   .login-wrap h2 { text-align:center; margin-bottom:24px; color:#1a73e8; font-size:22px; }
@@ -67,22 +92,85 @@
 <div id="view-main" style="display:none;">
   <div class="header">
     <div>
-      <h1>待签收</h1>
+      <h1>待签收 <span class="net-badge" id="net-badge">—</span></h1>
       <div class="user" id="user-info"></div>
     </div>
     <button class="btn-logout" id="btn-logout">退出</button>
   </div>
+  <div class="queue-bar" id="queue-bar" style="display:none;">
+    <span id="queue-text">离线队列: 0 条待重放</span>
+    <button class="btn-replay" id="btn-replay">立即重放</button>
+  </div>
+  <div class="pull-hint" id="pull-hint">下拉刷新 · 上次更新: —</div>
   <div class="container" id="pending-list"></div>
   <div class="empty" id="empty-msg" style="display:none;">暂无待签收单据</div>
 </div>
 
 <div class="toast" id="toast"></div>
+<div class="notif" id="notif"></div>
 
 <script>
 (function(){
   'use strict';
   var $ = function(id){ return document.getElementById(id); };
   var state = { account: '', name: '' };
+
+  // ---------- P1-T05: 离线队列(基于 localStorage) ----------
+  var QUEUE_KEY = 'sign_offline_queue';
+  function readQueue() {
+    try { return JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]'); }
+    catch (e) { return []; }
+  }
+  function writeQueue(q) {
+    try { localStorage.setItem(QUEUE_KEY, JSON.stringify(q)); } catch (e) {}
+    renderQueueBar();
+  }
+  function enqueueReceive(item) {
+    var q = readQueue();
+    // 防重:同单只允许一条(用 idempotency-key 去重)
+    if (q.some(function(x){ return x.id === item.id; })) return false;
+    q.push({
+      id: item.id,
+      key: 'offline-' + item.id + '-' + Date.now(),  // 离线生成幂等键
+      queued_at: new Date().toISOString(),
+    });
+    writeQueue(q);
+    return true;
+  }
+  function dequeue(id) {
+    var q = readQueue().filter(function(x){ return x.id !== id; });
+    writeQueue(q);
+  }
+  function renderQueueBar() {
+    var q = readQueue();
+    var bar = $('queue-bar');
+    if (q.length === 0) { bar.style.display = 'none'; return; }
+    bar.style.display = 'flex';
+    $('queue-text').textContent = '离线队列: ' + q.length + ' 条待重放';
+  }
+
+  // ---------- 通知(top-right toast) ----------
+  function notif(msg, kind) {
+    var n = $('notif');
+    n.textContent = msg;
+    n.className = 'notif ' + (kind || '');
+    // 强制 reflow 触发过渡
+    void n.offsetWidth;
+    n.classList.add('show');
+    setTimeout(function(){ n.classList.remove('show'); }, 3000);
+  }
+
+  // ---------- 网络状态指示 ----------
+  function updateNetBadge() {
+    var b = $('net-badge');
+    if (navigator.onLine) {
+      b.textContent = '在线';
+      b.className = 'net-badge online';
+    } else {
+      b.textContent = '离线';
+      b.className = 'net-badge offline';
+    }
+  }
 
   function toast(msg) {
     var t = $('toast');
@@ -91,7 +179,55 @@
     setTimeout(function(){ t.classList.remove('show'); }, 2200);
   }
 
-  // ---- 登录 ----
+  // ---------- 下拉刷新 ----------
+  var pullStart = null, pullDistance = 0, PULL_THRESHOLD = 60;
+  function initPullToRefresh() {
+    var hint = $('pull-hint');
+    var container = $('view-main');
+    container.addEventListener('touchstart', function(e){
+      if (window.scrollY !== 0) return;
+      pullStart = e.touches[0].clientY;
+      pullDistance = 0;
+    }, { passive: true });
+    container.addEventListener('touchmove', function(e){
+      if (pullStart == null) return;
+      pullDistance = e.touches[0].clientY - pullStart;
+      if (pullDistance > 0 && window.scrollY === 0) {
+        var d = Math.min(pullDistance, 120);
+        hint.style.transform = 'translateY(' + (d * 0.5) + 'px)';
+        hint.textContent = pullDistance > PULL_THRESHOLD ? '松手刷新' : '下拉刷新';
+      }
+    }, { passive: true });
+    container.addEventListener('touchend', function(){
+      if (pullStart == null) return;
+      if (pullDistance > PULL_THRESHOLD && window.scrollY === 0) {
+        hint.classList.add('refreshing');
+        hint.textContent = '正在刷新…';
+        loadPending(function(){
+          hint.classList.remove('refreshing');
+          hint.style.transform = 'translateY(0)';
+          updatePullTime();
+        });
+      } else {
+        hint.style.transform = 'translateY(0)';
+        hint.textContent = '下拉刷新 · ' + lastPullTime();
+      }
+      pullStart = null;
+      pullDistance = 0;
+    });
+  }
+  function updatePullTime() {
+    var t = new Date();
+    var hh = String(t.getHours()).padStart(2, '0');
+    var mm = String(t.getMinutes()).padStart(2, '0');
+    var ss = String(t.getSeconds()).padStart(2, '0');
+    $('pull-hint').textContent = '下拉刷新 · 上次更新: ' + hh + ':' + mm + ':' + ss;
+  }
+  function lastPullTime() {
+    return $('pull-hint').textContent.replace(/^下拉刷新 · /, '').replace(/^上次更新: /, '上次更新: ');
+  }
+
+  // ---------- 登录 ----------
   $('btn-login').addEventListener('click', doLogin);
   $('login-password').addEventListener('keydown', function(e){ if(e.key==='Enter') doLogin(); });
 
@@ -129,57 +265,131 @@
     .finally(function(){ $('btn-login').disabled=false; $('btn-login').textContent='登录'; });
   }
 
-  // ---- 退出 ----
+  // ---------- 退出 ----------
   $('btn-logout').addEventListener('click', function(){
     fetch('/auth/logout', { method:'POST', credentials:'same-origin' })
       .then(function(){ showLogin(); });
   });
 
-  // ---- 视图切换 ----
+  // ---------- 视图切换 ----------
   function showLogin(){ $('view-login').style.display='block'; $('view-main').style.display='none'; }
   function showMain(){
     $('view-login').style.display='none';
     $('view-main').style.display='block';
     $('user-info').textContent = state.name + ' (' + state.account + ')';
+    updateNetBadge();
+    renderQueueBar();
     loadPending();
+    updatePullTime();
   }
 
-  // ---- 加载待办 ----
-  function loadPending() {
+  // ---------- 加载待办 ----------
+  function loadPending(cb) {
     fetch('/distribution/my/pending', { credentials:'same-origin' })
       .then(function(r){ return r.json(); })
       .then(function(b){
         var list = $('pending-list');
         list.innerHTML = '';
         var items = b.items || [];
-        if (items.length === 0) {
+        var queued = readQueue();
+        if (items.length === 0 && queued.length === 0) {
           $('empty-msg').style.display = 'block';
+          if (cb) cb();
           return;
         }
         $('empty-msg').style.display = 'none';
         items.forEach(function(it){
+          var isQueued = queued.some(function(x){ return x.id === it.id; });
           var card = document.createElement('div');
           card.className = 'card';
           card.innerHTML =
-            '<div class="title">' + esc(it.id) + '</div>' +
+            '<div class="title">' + esc(it.id) +
+              (isQueued ? '<span class="badge-queued">离线已排队</span>' : '') +
+            '</div>' +
             '<div class="meta">' +
               '<span>覆盖单位: ' + esc(it.units || '-') + '</span>' +
               '<span>人数: ' + esc(it.people_count != null ? it.people_count : '-') + '</span>' +
               '<span>仓库: ' + esc(it.depot_id || '-') + '</span>' +
             '</div>';
           var btn = document.createElement('button');
-          btn.className = 'btn btn-success';
-          btn.textContent = '确认签收';
-          btn.addEventListener('click', function(){ doReceive(it.id, btn); });
+          btn.className = 'btn btn-success btn-receive';
+          if (isQueued) {
+            btn.textContent = '等待网络重放';
+            btn.disabled = true;
+          } else {
+            btn.textContent = '确认签收';
+            btn.addEventListener('click', function(){ doReceive(it.id, btn); });
+          }
           card.appendChild(btn);
           list.appendChild(card);
         });
+        // 渲染纯离线队列(服务端已列表拉不到时也显示)
+        queued.forEach(function(q){
+          if (items.some(function(it){ return it.id === q.id; })) return;
+          var card = document.createElement('div');
+          card.className = 'card';
+          card.innerHTML =
+            '<div class="title">' + esc(q.id) +
+              '<span class="badge-queued">离线已排队</span>' +
+            '</div>' +
+            '<div class="meta"><span>排队时间: ' + esc(q.queued_at) + '</span></div>';
+          var btn = document.createElement('button');
+          btn.className = 'btn btn-success btn-receive';
+          btn.textContent = '等待网络重放';
+          btn.disabled = true;
+          card.appendChild(btn);
+          list.appendChild(card);
+        });
+        if (cb) cb();
       })
-      .catch(function(e){ toast('加载失败: ' + e.message); });
+      .catch(function(e){
+        // 离线:渲染队列中的待办
+        var queued = readQueue();
+        var list = $('pending-list');
+        list.innerHTML = '';
+        if (queued.length === 0) {
+          $('empty-msg').style.display = 'block';
+          $('empty-msg').textContent = '当前离线,无待重放队列';
+        } else {
+          $('empty-msg').style.display = 'none';
+          queued.forEach(function(q){
+            var card = document.createElement('div');
+            card.className = 'card';
+            card.innerHTML =
+              '<div class="title">' + esc(q.id) +
+                '<span class="badge-queued">离线已排队</span>' +
+              '</div>' +
+              '<div class="meta"><span>排队时间: ' + esc(q.queued_at) + '</span></div>';
+            var btn = document.createElement('button');
+            btn.className = 'btn btn-success btn-receive';
+            btn.textContent = '等待网络重放';
+            btn.disabled = true;
+            card.appendChild(btn);
+            list.appendChild(card);
+          });
+        }
+        toast('加载失败: ' + e.message);
+        if (cb) cb();
+      });
   }
 
-  // ---- 签收 ----
+  // ---------- 签收(支持离线队列) ----------
   function doReceive(id, btn) {
+    if (!navigator.onLine) {
+      // 离线:入队 + 更新 UI
+      if (enqueueReceive({ id: id })) {
+        notif('已加入离线队列,联网后自动重放', 'success');
+        if (btn) {
+          btn.textContent = '等待网络重放';
+          btn.disabled = true;
+        }
+        // 重新渲染(加入 badge)
+        loadPending();
+      } else {
+        toast('该单已在离线队列');
+      }
+      return;
+    }
     btn.disabled = true;
     btn.textContent = '签收中…';
     fetch('/distribution/' + id + '/receive', {
@@ -188,25 +398,92 @@
     .then(function(r){ return r.json().then(function(b){ return { ok:r.ok, status:r.status, body:b }; }); })
     .then(function(res){
       if (res.ok) {
-        toast('签收成功: ' + id);
+        notif('签收成功: ' + id, 'success');
         loadPending();
       } else {
         var msg = res.body.error || ('HTTP ' + res.status);
-        toast('签收失败: ' + msg);
+        notif('签收失败: ' + msg, 'error');
         btn.disabled = false;
         btn.textContent = '确认签收';
       }
     })
-    .catch(function(e){ toast('网络错误: ' + e.message); btn.disabled=false; btn.textContent='确认签收'; });
+    .catch(function(e){
+      // 网络错误:入队
+      if (enqueueReceive({ id: id })) {
+        notif('网络错误,已加入离线队列', 'success');
+        loadPending();
+      } else {
+        toast('网络错误: ' + e.message);
+        btn.disabled=false; btn.textContent='确认签收';
+      }
+    });
   }
+
+  // ---------- 重放队列 ----------
+  function replayQueue() {
+    var q = readQueue();
+    if (q.length === 0) { toast('队列已空'); return Promise.resolve(); }
+    $('btn-replay').disabled = true;
+    $('btn-replay').textContent = '重放中…';
+    var results = { ok: 0, fail: 0, keep: [] };
+    return q.reduce(function(promise, item){
+      return promise.then(function(){
+        return fetch('/distribution/' + item.id + '/receive', {
+          method:'POST',
+          credentials:'same-origin',
+          headers: { 'Idempotency-Key': item.key },  // 服务端幂等去重
+        })
+        .then(function(r){ return r.json().then(function(b){ return { ok:r.ok, status:r.status, body:b }; }); })
+        .then(function(res){
+          if (res.ok) {
+            results.ok++;
+            dequeue(item.id);
+          } else if (res.status === 400 || res.status === 403) {
+            // 业务性拒绝(已签/不可签)→ 丢弃
+            results.fail++;
+            dequeue(item.id);
+          } else {
+            // 其他错误:保留,下次再试
+            results.keep.push(item.id);
+          }
+        })
+        .catch(function(){
+          results.keep.push(item.id);
+        });
+      });
+    }, Promise.resolve())
+    .then(function(){
+      $('btn-replay').disabled = false;
+      $('btn-replay').textContent = '立即重放';
+      var kept = readQueue().length;
+      notif('重放完成: 成功 ' + results.ok + ',失败 ' + results.fail + ',保留 ' + kept,
+            results.fail > 0 ? 'error' : 'success');
+      renderQueueBar();
+      loadPending();
+    });
+  }
+  $('btn-replay').addEventListener('click', replayQueue);
+
+  // ---------- 在线/离线事件 ----------
+  window.addEventListener('online', function(){
+    updateNetBadge();
+    notif('网络已恢复,正在重放队列…', 'success');
+    replayQueue();
+  });
+  window.addEventListener('offline', function(){
+    updateNetBadge();
+    notif('网络已断开,签收将自动排队', 'error');
+  });
 
   function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, function(c){
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
 
-  // ---- 启动:尝试自动恢复会话 ----
+  // ---------- 启动:尝试自动恢复会话 ----------
   (function init(){
     var remembered = localStorage.getItem('sign_account');
     if (remembered) $('login-account').value = remembered;
+    updateNetBadge();
+    initPullToRefresh();
     // 探测会话:调 /auth/me
     fetch('/auth/me', { credentials:'same-origin' })
       .then(function(r){
@@ -214,10 +491,23 @@
           state.account = (b.employee && b.employee.account) || '';
           state.name = (b.employee && b.employee.name) || state.account;
           showMain();
+          // 启动时若在线且队列非空 → 自动重放
+          if (navigator.onLine && readQueue().length > 0) {
+            setTimeout(replayQueue, 500);
+          }
         });
         showLogin();
       })
-      .catch(function(){ showLogin(); });
+      .catch(function(){
+        // 探测失败可能离线 → 仍显示主视图(队列可见)
+        if (!navigator.onLine && remembered) {
+          state.account = remembered;
+          state.name = remembered;
+          showMain();
+        } else {
+          showLogin();
+        }
+      });
   })();
 })();
 </script>
