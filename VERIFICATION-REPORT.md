@@ -303,3 +303,52 @@ with the one-line reason (cross-device field sign-off is architecturally impossi
 - **Overlap-doc one-line fixes** (scrypt→bcrypt, 数百→57 tests) — left for the team, documented in §12.3.
 - **DEMAND-POOL 29× 待认领** — tracking-board rewrite awaiting go-ahead.
 - Minor: the append-only triggers are **retroactive** — existing deployed DBs need migration 005 applied on next boot (the `user_version` runner does this automatically).
+
+---
+
+## 14. Verification round 2 — refreshed to `origin/main` `72c2174` (2026-11-16)
+
+Local `main` was **17 commits behind** `origin/main` (clean fast-forward from my `49aef31`; no local-only commits). This round verifies the delta and re-checks the open items. **The project has moved from "can they build it?" decisively into "building it well."**
+
+### 14.1 The headline: the §12.4 fork is RESOLVED (Daniel decided)
+Commit `1a4879e` — *"签收模型 self-only → 代签白名单(代管, Daniel 2026-11-16 拍板)"* — **resolved the self-only-vs-代管 conflict** this report escalated in §12.4. Decision: field workers average 50–65 and cannot all be assumed to use smartphones, so sign-off moved to a **proxy-whitelist model**:
+- `signoff.self_only` → **`false`**; new `signoff.proxy_positions` = `班组长,车队长,队长` (migration `006_proxy_signoff.sql`).
+- Semantics: if the signer is in the recipient pool → self-sign; otherwise a **whitelisted position** may sign **on behalf of** a named `recipient_id`; a non-whitelisted proxy → **403**. The `signoff` chain event now records `received_by` / `signed_by` / `mode`, so the audit trail stays traceable (the anti-fraud property is preserved as *attribution*, not as *identity prohibition*).
+- **A-T5 was rewritten** (engine + SQL) from "self-only or 403" to "self ok + whitelisted-proxy ok + non-whitelisted 403." The team also updated SUBSYSTEM-A spec, DRILL-SCRIPT, foundation/server READMEs, and §12.4 of this report.
+
+This is exactly the resolution §12.4 called for (a product decision by Daniel, not by either document's author) — and the **代管 pole won**, which is why §13 deliberately added no new self-only coverage.
+
+### 14.2 What else landed (P0-T01..T07 + P1-T01..T06 + Gate-1)
+The entire remaining P0 foundation and most of P1 Sub-system A shipped across the 17 commits:
+- **P0-T01** RBAC full (3-factor middleware + hierarchical admin_level) · **P0-T02** org_policy service + panel · **P0-T03** offline outbox batch replay (idempotent) · **P0-T04** depot transfer (A-T14) · **P0-T05** `DEPLOYMENT.md` (30-min bring-up + backup) · **P0-T07** seed-import (idempotent).
+- **P1-T01** full distribution + requisition APIs (pagination/filter/cross-depot reject A-T13) · **P1-T02** inbound + quality gate (A-T9) · **P1-T03** rental ledger · **P1-T04** reports + full state-machine illegal-transition rejection · **P1-T05** mobile deepening (offline queue/pull-refresh/notifications) · **P1-T06** Gate-1 acceptance matrix **A-T1…A-T14**.
+- Migrations grew **6 → 10** (added `006_proxy_signoff`, `007_depot_transfer`, `008_inbound_events`, `009_rental_ledger`, `010_rental_events`); server test files grew to **19**.
+
+### 14.3 Test suite re-executed on refreshed HEAD
+| Suite | §13 (49aef31) | Now (72c2174) |
+|---|---|---|
+| server `npm test` | 36 | **137** |
+| foundation engine | 13 | 13 |
+| foundation SQL | 9 | 9 |
+| **Total** | **58** | **159** |
+
+All **159 pass / 0 fail**. `npm install` clean (0 vulnerabilities; deps unchanged). My §13 additions **survived** the rebase: the 4 append-only triggers still exist on a fresh 10-migration DB, and my A-T7 test still passes — the team also added their **own** A-T7 case (`gate1.test.js`), so the no-oversell invariant is now double-covered. D1 banner still present.
+
+### 14.4 Open-item reconciliation after refresh
+| Item | Was (§13) | Now | Evidence |
+|---|---|---|---|
+| **#1 self-only vs 代管** | Open, Daniel's call | **RESOLVED** | `1a4879e`; `signoff.self_only=false`; proxy whitelist; A-T5 rewritten |
+| **Overlap-doc scrypt→bcrypt** | Open | **RESOLVED by team** | `COMPREHENSIVE-…:41` now says "bcryptjs, cost=10" |
+| **Overlap-doc "数百项"→count** | Open | **Fixed, but now stale again** | `:41` cites "58 项 (36 server)" — true at `1a4879e`, but suite is now **159 (137 server)** |
+| **A2 append-only triggers** | Landed by me (§13) | **Landed** — but DEMAND-POOL still lists it as "仍需关注" | 4 triggers on fresh DB; `005` intact |
+| **I1 A-T7 concurrency** | Landed by me (§13) | **Landed** — but DEMAND-POOL still lists it as "仍需关注" | A-T7 passes (×2, mine + team's) |
+| **D1 banner** | Landed by me (§13) | **Landed** — DEMAND-POOL notes "部分内容仍需更新" | banner present |
+
+### 14.5 New issues found this round
+1. **DEMAND-POOL tech-debt list is stale (the report's own F1/D3 disease).** Its "仍需关注的技术债务" section still flags **A2 and I1 as open** — but both were landed in my §13 push (`49aef31`) and are present on this HEAD. It also says the suite is "57 (13+9+35)," now 159. The board under-credits shipped work — the inverse of the old over-claim.
+2. **DEMAND-POOL B/C-section rows still 待认领 despite the work shipping.** §A was correctly marked 已交付 (with a note honoring the "commit/测试输出才能改状态" rule), but the new **P0-T01..T07** and **P1-T01..T06** features were committed to `main` while their B/C rows still read 待认领. Only P0-T06 is marked 已完成. Same bookkeeping gap §13 flagged, now on the *newer* rows. Still **23 待认领** rows overall.
+3. **Overlap-doc count regressed stale again** (58 vs 159) — a moving target; recommend the team stop hard-coding test counts in prose and link to the suite instead.
+4. **Quick-wins QW-T01/QW-T02 still open:** orphan `js/app.js` + `js/data.js` still on disk; still no root README/LICENSE.
+
+### 14.6 Verdict on the plan
+The roadmap is being executed **ahead of schedule and largely to spec**: Dry-Run (§A) done, P0 done, P1 mostly done through Gate-1 (A-T1…A-T14), and the biggest open risk (§12.4 fork) resolved by the named decision-maker. Remaining plan work is genuinely light: **P1-T07** (multi-depot UI), quick-wins QW-T01/T02/T03, GTM (§F, blocked on Daniel's pilot list), and **P2-T01** (performance scorecard). The only recurring deficiency is **bookkeeping discipline** — the DEMAND-POOL/overlap-doc prose keeps drifting from what `main` actually contains. The project's own evidence rule ("only commit/test output changes status") is being honored for §A but not yet for §B/§C.
