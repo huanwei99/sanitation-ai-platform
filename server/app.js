@@ -14,6 +14,7 @@ const { registerDepotTransferRoutes } = require('./depot-transfer');
 const { registerSeedImportRoutes } = require('./seed-import');
 const { registerRequisitionRoutes } = require('./requisition');
 const { registerInboundRoutes } = require('./inbound');
+const { registerRentalRoutes } = require('./rental');
 const { registerReportRoutes } = require('./reports');
 
 async function buildApp(opts = {}) {
@@ -92,6 +93,9 @@ async function buildApp(opts = {}) {
 
   // ---- 入库+质检门(P1-T02):A-T9 质检门,合格才加库存 ----
   await registerInboundRoutes(fastify);
+
+  // ---- 外租设备台账(P1-T03):租入/归还留痕 ----
+  await registerRentalRoutes(fastify);
 
   // ---- 报表(P1-T04):流水/低库存/发放统计 ----
   await registerReportRoutes(fastify);
