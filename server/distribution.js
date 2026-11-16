@@ -107,19 +107,36 @@ async function createDistribution(app, req, reply) {
   const seq = (maxRow && maxRow.m ? maxRow.m : 0) + 1;
   const distId = `${prefix}${String(seq).padStart(4, '0')}`;
 
-  // 计算总金额
+  // 计算总金额 + 落库(ApiError → HTTP 状态码)
   let total_cost = 0;
-  const lines = items.map((it, idx) => {
-    const { item_id, per_person_qty } = it;
-    if (!item_id || !per_person_qty || per_person_qty < 1) {
-      throw new Error(`第 ${idx + 1} 行 item_id/per_person_qty 非法`);
-    }
-    const inv = app.db.prepare('SELECT unit_cost, stock FROM inventory_item WHERE id = ? AND depot_id = ?').get(item_id, depot_id);
-    if (!inv) throw new Error(`物资 ${item_id} 不在仓库 ${depot_id}`);
-    const qty = per_person_qty * total_people;
-    total_cost += qty * inv.unit_cost;
-    return { line_no: idx + 1, item_id, per_person_qty, qty };
-  });
+  let lines;
+  try {
+    lines = items.map((it, idx) => {
+      const { item_id, per_person_qty } = it;
+      if (!item_id || !per_person_qty || per_person_qty < 1) {
+        throw new ApiError(400, { ok: false, error: `第 ${idx + 1} 行 item_id/per_person_qty 非法` });
+      }
+      const inv = app.db.prepare('SELECT unit_cost, stock, depot_id FROM inventory_item WHERE id = ? AND depot_id = ?').get(item_id, depot_id);
+      if (!inv) {
+        // A-T13:区分"物资不存在"与"物资在别仓(跨仓被拒)"
+        const elsewhere = app.db.prepare('SELECT depot_id FROM inventory_item WHERE id = ? LIMIT 1').get(item_id);
+        if (elsewhere && elsewhere.depot_id !== depot_id) {
+          throw new ApiError(400, {
+            ok: false, code: 'DEPOT_MISMATCH',
+            error: `物资 ${item_id} 属于仓 ${elsewhere.depot_id},不能从 ${depot_id} 出库`,
+            item_id, item_depot: elsewhere.depot_id, requested_depot: depot_id,
+          });
+        }
+        throw new ApiError(404, { ok: false, error: `物资 ${item_id} 不存在或不在仓库 ${depot_id}` });
+      }
+      const qty = per_person_qty * total_people;
+      total_cost += qty * inv.unit_cost;
+      return { line_no: idx + 1, item_id, per_person_qty, qty };
+    });
+  } catch (e) {
+    if (e instanceof ApiError) return reply.code(e.status).send(e.body);
+    throw e;
+  }
 
   // 落库(事务)
   app.db.transaction(() => {
@@ -451,6 +468,81 @@ async function receiveDistribution(app, req, reply) {
   return reply.send(result);
 }
 
+// ---------- 列表 GET /distribution ----------
+// 分页(page/limit)+筛选(status/dept/applicant/depot/日期范围)。
+// 可见性:发放操作权 → 全部;否则仅本人申请/接收的单。
+async function listDistributions(app, req, reply) {
+  const me = req.principal.employee_id;
+  const privileged = canDistribute(app.db, me);
+
+  const q = req.query || {};
+  const page = Math.max(1, parseInt(q.page, 10) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(q.limit, 10) || 20));
+  const offset = (page - 1) * limit;
+
+  const where = [];
+  const params = [];
+  if (!privileged) {
+    where.push(`(d.applicant_id = ? OR EXISTS (
+      SELECT 1 FROM distribution_recipient r WHERE r.distribution_id = d.id AND r.employee_id = ?))`);
+    params.push(me, me);
+  }
+  if (q.status) { where.push('d.status = ?'); params.push(q.status); }
+  if (q.department) { where.push('d.department = ?'); params.push(q.department); }
+  if (q.applicant_id) { where.push('d.applicant_id = ?'); params.push(Number(q.applicant_id)); }
+  if (q.depot_id) { where.push('d.depot_id = ?'); params.push(q.depot_id); }
+  if (q.from) { where.push("DATE(d.requested_at) >= DATE(?)"); params.push(q.from); }
+  if (q.to) { where.push("DATE(d.requested_at) <= DATE(?)"); params.push(q.to); }
+
+  const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  const total = app.db.prepare(
+    `SELECT COUNT(*) AS c FROM distribution d ${whereSql}`
+  ).get(...params).c;
+  const items = app.db.prepare(
+    `SELECT d.id, d.applicant_id, d.department, d.scope, d.scope_desc, d.total_people,
+            d.total_cost, d.distributor_id, d.depot_id, d.status, d.current_step,
+            d.total_steps, d.requested_at, d.updated_at
+       FROM distribution d ${whereSql}
+       ORDER BY d.requested_at DESC, d.id DESC
+       LIMIT ? OFFSET ?`
+  ).all(...params, limit, offset);
+
+  return reply.send({
+    ok: true, page, limit, total,
+    pages: Math.ceil(total / limit),
+    items,
+  });
+}
+
+// ---------- 详情 GET /distribution/:id ----------
+// 含 lines + recipients + workflow_steps;可见性同列表。
+async function getDistribution(app, req, reply) {
+  const { id } = req.params;
+  if (!canViewDistribution(app.db, req.principal.employee_id, id)) {
+    return reply.code(403).send({ ok: false, error: '无权查看该单据' });
+  }
+  const dist = app.db.prepare('SELECT * FROM distribution WHERE id = ?').get(id);
+  if (!dist) return reply.code(404).send({ ok: false, error: `发放单 ${id} 不存在` });
+
+  const lines = app.db.prepare(
+    `SELECT line_no, item_id, per_person_qty, qty FROM distribution_line
+      WHERE distribution_id = ? ORDER BY line_no`
+  ).all(id);
+  const recipients = app.db.prepare(
+    `SELECT employee_id, units, people_count, status, transferred_at, received_at
+       FROM distribution_recipient WHERE distribution_id = ? ORDER BY id`
+  ).all(id);
+  const steps = app.db.prepare(
+    `SELECT step_no, name, assignee_id, status, started_at, completed_at
+       FROM workflow_step WHERE ref_type = 'distribution' AND ref_id = ? ORDER BY step_no`
+  ).all(id);
+
+  return reply.send({
+    ok: true,
+    distribution: { ...dist, lines, recipients, steps },
+  });
+}
+
 // ---------- 我的待签收 GET /distribution/my/pending ----------
 // 返回当前登录人作为接收人、状态"已移交"(待本人签收)的单据列表
 async function myPending(app, req, reply) {
@@ -486,6 +578,8 @@ async function registerDistributionRoutes(app) {
   const preAuth = { preValidation: [app.authenticate] };
 
   app.post('/distribution/requests', preAuth, async (req, reply) => createDistribution(app, req, reply));
+  app.get('/distribution', preAuth, async (req, reply) => listDistributions(app, req, reply));
+  app.get('/distribution/:id', preAuth, async (req, reply) => getDistribution(app, req, reply));
   app.get('/distribution/my/pending', preAuth, async (req, reply) => myPending(app, req, reply));
   app.post('/distribution/:id/approve', preAuth, async (req, reply) => approveDistribution(app, req, reply));
   app.post('/distribution/:id/issue', preAuth, async (req, reply) => issueDistribution(app, req, reply));
