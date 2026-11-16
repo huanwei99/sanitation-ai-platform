@@ -106,17 +106,24 @@ test('A-2: 无审批权的一线员工审批 → 403,单据状态不变', async 
   } finally { await cleanup(app, dbPath); }
 });
 
-test('A-3: 申请人不在接收人池 → 本人签收 403(假成功已堵);池内接收人仍可签', async () => {
+test('A-3: 非池内人签收 403(假成功已堵);非白名单代签也 403;池内接收人可签', async () => {
   const { app, dbPath, cookies } = await buildFixture();
   try {
-    // 申请人是 6004,接收人池只有 6003
+    // 申请人是 6004(保洁员,非白名单),接收人池只有 6003
     const id = await flowTransferred(app, cookies, { applicant: 6004, recipients: [6003] });
-    // 申请人 6004 自己签 → 403(此前会静默 ok:true 但不落任何接收人记录)
+    // 申请人 6004 自己签(目标=自己,不在池) → 403
     const byApplicant = await app.inject({
       method: 'POST', url: `/distribution/${id}/receive`, headers: { cookie: cookies.workerB }
     });
-    assert.equal(byApplicant.statusCode, 403, `申请人不在池应 403: ${byApplicant.body}`);
-    assert.match(byApplicant.json().error, /self_only|不在该单据接收人池/);
+    assert.equal(byApplicant.statusCode, 403, `非池内人签收应 403: ${byApplicant.body}`);
+    assert.match(byApplicant.json().error, /接收人不在该单据接收人池/);
+    // 申请人 6004 代签 6003(非白名单岗位) → 403
+    const proxyByNonWhitelist = await app.inject({
+      method: 'POST', url: `/distribution/${id}/receive`,
+      headers: { cookie: cookies.workerB }, payload: { recipient_id: 6003 }
+    });
+    assert.equal(proxyByNonWhitelist.statusCode, 403, `非白名单代签应 403: ${proxyByNonWhitelist.body}`);
+    assert.match(proxyByNonWhitelist.json().error, /白名单/);
     // 任何接收人记录都未被改写
     const recs = app.db.prepare('SELECT status FROM distribution_recipient WHERE distribution_id = ?').all(id);
     assert.equal(recs.length, 1);

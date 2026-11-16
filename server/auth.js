@@ -253,7 +253,9 @@ async function registerAuthRoutes(app, opts = {}) {
     req.principal = {
       employee_id: sess.employee_id,
       account: sess.account,
-      name: sess.name
+      name: sess.name,
+      position: sess.position,
+      department: sess.department
     };
     return req.principal;
   });

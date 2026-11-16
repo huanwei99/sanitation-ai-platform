@@ -20,7 +20,7 @@ server/
 ├── chain.js            # 审计哈希链核心(DR-T06):recordEvent/verifyChain
 ├── audit.js            # 审计查询+校验 API(DR-T06):/audit/events|chain|verify-all
 ├── audit.test.js       # 审计链测试(A-T10 篡改检测)
-├── mobile-sign.test.js # 移动签收测试(self-only + 已完成)
+├── mobile-sign.test.js # 移动签收测试(代签白名单 + 已完成)
 ├── regression-ab.test.js # A/B 级缺陷回归测试(审批鉴权/签收/审计限权)
 ├── seed-drill.js       # 演练种子数据(DR-T08)
 ├── verify.ps1          # 一键验证脚本(前置检查→安装→测试→起服务→探活)

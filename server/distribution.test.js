@@ -26,7 +26,7 @@ async function cleanup(app, dbPath) {
   try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
 }
 
-// fixture:库管员 2001、审批人 2002、一线 2003
+// fixture:库管员 2001、审批人 2002、一线 2003、班组长 2004(代签白名单)
 async function buildFixture() {
   const dbPath = tmpDbPath();
   const app = await buildApp({ dbPath, cookieSecret: 'test-dist-secret' });
@@ -48,6 +48,11 @@ async function buildFixture() {
     name: '一线-C', position: '保洁员', department: '一线作业',
     permissions: null
   });
+  await seedAccount(app.db, {
+    employee_id: 2004, account: 'EMP2004', password: 'Pwd2004@x',
+    name: '班组长-D', position: '班组长', department: '一线作业',
+    permissions: null
+  });
 
   // 登录拿 cookie(返回完整 "sid=<token>" 串,供后续请求直接用)
   async function login(account, password) {
@@ -58,8 +63,9 @@ async function buildFixture() {
   const keeper = await login('EMP2001', 'Pwd2001@x');
   const approver = await login('EMP2002', 'Pwd2002@x');
   const worker = await login('EMP2003', 'Pwd2003@x');
+  const foreman = await login('EMP2004', 'Pwd2004@x');
 
-  return { app, dbPath, cookies: { keeper, approver, worker } };
+  return { app, dbPath, cookies: { keeper, approver, worker, foreman } };
 }
 
 // 创建一个基础发放单(库管员 → 5人领口罩和消毒液)
@@ -303,7 +309,7 @@ test('DR-T04-07: 完整流程 — step1→transfer→receive→step4 全链闭�
   } finally { await cleanup(app, dbPath); }
 });
 
-test('DR-T04-08: self_only — 非本人签收被拒', async () => {
+test('DR-T04-08: 代签白名单 — 本人/白名单可签,非白名单代签 403', async () => {
   const { app, dbPath, cookies } = await buildFixture();
   try {
     const { id } = await createSample(app, cookies.keeper);
@@ -313,19 +319,25 @@ test('DR-T04-08: self_only — 非本人签收被拒', async () => {
       method: 'POST', url: `/distribution/${id}/transfer`,
       headers: { cookie: cookies.keeper }, payload: { recipient_id: 2003 }
     });
-    // 库管员 2001 想替一线 2003 签收 → 403
+
+    // 非白名单代签:库管员 2001(仓库管理员,不在白名单)替 2003 签 → 403
     const other = await app.inject({
       method: 'POST', url: `/distribution/${id}/receive`,
-      headers: { cookie: cookies.keeper }
+      headers: { cookie: cookies.keeper },
+      payload: { recipient_id: 2003 }
     });
-    assert.equal(other.statusCode, 403, '非本人应 403');
-    assert.match(other.json().error, /self_only|仅申请人|接收人本人/);
+    assert.equal(other.statusCode, 403, '非白名单代签应 403');
+    assert.match(other.json().error, /白名单/);
 
-    // 接收人本人签 → 200
-    const self = await app.inject({
+    // 白名单代签:班组长 2004 替 2003 签 → 200, mode=proxy
+    const proxy = await app.inject({
       method: 'POST', url: `/distribution/${id}/receive`,
-      headers: { cookie: cookies.worker }
+      headers: { cookie: cookies.foreman },
+      payload: { recipient_id: 2003 }
     });
-    assert.equal(self.statusCode, 200);
+    assert.equal(proxy.statusCode, 200, `白名单代签应 200: ${proxy.body}`);
+    assert.equal(proxy.json().mode, 'proxy');
+    assert.equal(proxy.json().received_by, 2003);
+    assert.equal(proxy.json().signed_by, 2004);
   } finally { await cleanup(app, dbPath); }
 });

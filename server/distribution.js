@@ -383,8 +383,9 @@ async function transferDistribution(app, req, reply) {
   return reply.send(result);
 }
 
-// ---------- 本人签收 POST /distribution/:id/receive ----------
-// self_only:必须本人(principal.employee_id = recipient_id)才能签
+// ---------- 签收 POST /distribution/:id/receive ----------
+// 代签模型:接收人本人签收 OR 白名单岗位(班组长/车队长/队长)代签。
+// body.recipient_id 指定被代签的接收人;缺省则本人签收。
 async function receiveDistribution(app, req, reply) {
   const { id } = req.params;
   const idem = readIdempotency(app.db, req.headers['idempotency-key'], 'POST /distribution/:id/receive', req.principal.employee_id);
@@ -396,16 +397,17 @@ async function receiveDistribution(app, req, reply) {
     return reply.code(400).send({ ok: false, error: `状态 ${dist.status} 不允许签收(应发放中)` });
   }
 
-  // A-3:统一签收口径 —— 签收人必须在该单据接收人池中且状态为"已移交"。
-  // 此前 principal==applicant 时跳过池校验:申请人若不在池里,事务内不更新任何行,
-  // 却照写 signoff 链事件并返回 ok:true(假成功),链与业务状态分叉且幂等键已写无法重签。
-  const recipientId = req.principal.employee_id;
+  // 代签模型:接收人本人签收 OR 白名单岗位(班组长/车队长/队长)代签。
+  // body.recipient_id 指定被代签的接收人;缺省则本人签收。
+  const actorId = req.principal.employee_id;
+  const targetId = Number(req.body?.recipient_id) || actorId;
+
   const rec = app.db.prepare(
     `SELECT * FROM distribution_recipient WHERE distribution_id = ? AND employee_id = ?`
-  ).get(id, recipientId);
+  ).get(id, targetId);
   if (!rec) {
     return reply.code(403).send({
-      ok: false, error: 'self_only:仅接收人本人可签收,当前账号不在该单据接收人池'
+      ok: false, error: '接收人不在该单据接收人池'
     });
   }
   if (rec.status === '已接收') {
@@ -415,23 +417,38 @@ async function receiveDistribution(app, req, reply) {
     return reply.code(400).send({ ok: false, error: '需先完成班组移交' });
   }
 
+  // 权限判定:本人签收 OR 代签白名单(position 匹配 signoff.proxy_positions)
+  let mode = 'self';
+  if (targetId !== actorId) {
+    const proxyPositions = (app.db.prepare("SELECT value FROM org_policy WHERE key='signoff.proxy_positions'").get()?.value || '')
+      .split(',').map(s => s.trim()).filter(Boolean);
+    const pos = req.principal.position || '';
+    const whitelisted = proxyPositions.some(kw => pos.includes(kw));
+    if (!whitelisted) {
+      return reply.code(403).send({
+        ok: false, error: '非接收人本人,且岗位不在代签白名单'
+      });
+    }
+    mode = 'proxy';
+  }
+
   app.db.transaction(() => {
     app.db.prepare(
       `UPDATE distribution_recipient SET status = '已接收', received_at = CURRENT_TIMESTAMP
        WHERE distribution_id = ? AND employee_id = ?`
-    ).run(id, recipientId);
+    ).run(id, targetId);
     recordEvent(app.db, {
       ref_type: 'distribution', ref_id: id, step_no: 3,
       event: 'signoff',
-      actor_id: req.principal.employee_id,
-      actor_role: '一线员工',
-      payload: { received_by: recipientId }
+      actor_id: actorId,
+      actor_role: req.principal.position || '一线员工',
+      payload: { received_by: targetId, signed_by: actorId, mode }
     });
   })();
 
-  const result = { ok: true, id, received_by: recipientId, status: '发放中' };
+  const result = { ok: true, id, received_by: targetId, signed_by: actorId, mode, status: '发放中' };
   writeIdempotency(app.db, req.headers['idempotency-key'], 'POST /distribution/:id/receive',
-                   req.principal.employee_id, 200, result);
+                   actorId, 200, result);
   return reply.send(result);
 }
 

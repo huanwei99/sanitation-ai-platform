@@ -84,23 +84,51 @@ test('A-T4 部分移交后签收', () => {
   assert.equal(db.distribution.get(distId).status, '已完成');
 });
 
-test('A-T5 仅本人签收（反舞弊）', () => {
+test('A-T5 代签收（白名单）', () => {
   const db = E.seed(E.newDb());
   const distId = makeApprovedDist(db, {
     total_people: 40,
     lines: [{ item_id: 'INV-001', per_person_qty: 2 }],
-    recipients: [{ employee_id: 7 }, { employee_id: 13 }],
+    recipients: [{ employee_id: 13 }],   // 仅 13（班组长）为接收人
   });
   E.completeDistributionStep(db, { dist_id: distId, step_no: 1, actor_id: 5 });
   E.completeDistributionStep(db, { dist_id: distId, step_no: 2, actor_id: 11 });
-  E.transfer(db, { dist_id: distId, actor_id: 11, recipient_ids: [7, 13] });
-  // 合法：接收人 13 签收本人名下 → 成功
+  E.transfer(db, { dist_id: distId, actor_id: 11, recipient_ids: [13] });
+
+  // 合法 1：本人签收 → 成功
   const ok = E.signoff(db, { dist_id: distId, actor_id: 13 });
   assert.equal(ok.ok, true);
-  // 反向用例：非接收人（项目经理 4）替签 → 应 FORBIDDEN
+  assert.equal(ok.mode, 'self');
+
+  // 重置：新建一张单测代签
+  const distId2 = makeApprovedDist(db, {
+    total_people: 40,
+    lines: [{ item_id: 'INV-001', per_person_qty: 2 }],
+    recipients: [{ employee_id: 13 }],
+  });
+  E.completeDistributionStep(db, { dist_id: distId2, step_no: 1, actor_id: 5 });
+  E.completeDistributionStep(db, { dist_id: distId2, step_no: 2, actor_id: 11 });
+  E.transfer(db, { dist_id: distId2, actor_id: 11, recipient_ids: [13] });
+
+  // 合法 2：白名单代签 —— 7（车队长，非接收人）替 13 签 → 成功
+  const proxy = E.signoff(db, { dist_id: distId2, actor_id: 7, recipient_id: 13 });
+  assert.equal(proxy.ok, true);
+  assert.equal(proxy.mode, 'proxy');
+  assert.equal(proxy.received_by, 13);
+  assert.equal(proxy.signed_by, 7);
+
+  // 反向：非白名单代签 —— 4（项目经理，非接收人、不在白名单）替 13 签 → FORBIDDEN
+  const distId3 = makeApprovedDist(db, {
+    total_people: 40,
+    lines: [{ item_id: 'INV-001', per_person_qty: 2 }],
+    recipients: [{ employee_id: 13 }],
+  });
+  E.completeDistributionStep(db, { dist_id: distId3, step_no: 1, actor_id: 5 });
+  E.completeDistributionStep(db, { dist_id: distId3, step_no: 2, actor_id: 11 });
+  E.transfer(db, { dist_id: distId3, actor_id: 11, recipient_ids: [13] });
   assert.throws(
-    () => E.signoff(db, { dist_id: distId, actor_id: 4 }),
-    /本人|self-only|FORBIDDEN/
+    () => E.signoff(db, { dist_id: distId3, actor_id: 4, recipient_id: 13 }),
+    /代签白名单|FORBIDDEN/
   );
 });
 

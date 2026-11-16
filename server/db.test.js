@@ -25,7 +25,7 @@ test('DR-T02-01: 空库执行 001+002 迁移无错', () => {
   const p = tmpDbPath();
   const { db, migrations } = initDb(p);
 
-  assert.equal(migrations.length, expectedMigrationCount(), `应执行全部 ${expectedMigrationCount()} 份迁移(001…005)`);
+  assert.equal(migrations.length, expectedMigrationCount(), `应执行全部 ${expectedMigrationCount()} 份迁移(001…006)`);
   assert.equal(migrations[0].skipped, false, '001 首次应执行');
   assert.equal(migrations[1].skipped, false, '002 首次应执行');
 

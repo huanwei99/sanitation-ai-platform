@@ -110,10 +110,11 @@ Invoke-WebRequest -Uri "http://localhost:8791/distribution/MD-2026-0001/transfer
 1. 退出，换 `DRILL-WORKER / Aa@123456` 登录
 2. 同样签收 MD-2026-0001
 
-### 3.3 验证 self-only（非本人签收 403）
-1. 用库管员 DRILL-KEEPER 登录 mobile-sign.html
-2. 手动访问 `http://localhost:8791/distribution/MD-2026-0001/receive`（浏览器地址栏直接敲回车）
-3. 应返回 `403` JSON `{"ok":false,"error":"self_only:..."}`
+### 3.3 验证代签白名单（非白名单代签 403；白名单可代签）
+1. 用库管员 DRILL-KEEPER（仓库管理员，**不在**代签白名单）登录
+2. 调 `POST /distribution/MD-2026-0001/receive`，body `{"recipient_id": <某接收人工号>}`
+3. 应返回 `403` JSON `{"ok":false,"error":"非接收人本人,且岗位不在代签白名单"}`
+4. 改用班组长 DRILL-LEADER（班组长，**在**白名单）登录，同样代签 → `200`，响应含 `mode:"proxy"`、`received_by`、`signed_by`
 
 ---
 
@@ -150,8 +151,8 @@ Invoke-WebRequest -Uri "http://localhost:8791/audit/chain?ref_type=distribution&
 
 - [ ] 库存正确扣减（口罩 500→498，因 2 人各 1 包）
 - [ ] 流水正确写入（`stock_movement` 表有 2 条 `distribution_out`）
-- [ ] 班组长张和一线员工刘各自成功签收（self-only）
-- [ ] 非本人签收返回 403
+- [ ] 班组长张和一线员工刘各自成功签收（本人或白名单代签）
+- [ ] 非白名单代签返回 403；白名单代签返回 200 且 `mode=proxy`
 - [ ] 全流程推进到"已完成"
 - [ ] 审计链 8 条事件哈希串联完整，`verify_ok=true`
 - [ ] 全程无阻塞，非开发同事能独立操作

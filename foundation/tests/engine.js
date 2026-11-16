@@ -12,7 +12,8 @@ class DomainError extends Error {
 const POLICY = {
   'distribution.require_approval': 'true',
   'requisition.require_approval': 'true',
-  'signoff.self_only': 'true',
+  'signoff.self_only': 'false',
+  'signoff.proxy_positions': '班组长,车队长,队长',
 };
 
 function newDb() {
@@ -233,18 +234,29 @@ function transfer(db, { dist_id, actor_id, recipient_ids, idempotency_key = null
 }
 
 // step4 签收（仅本人，A-T5）
-function signoff(db, { dist_id, actor_id, idempotency_key = null, captured_at = null }) {
+function signoff(db, { dist_id, actor_id, recipient_id = null, idempotency_key = null, captured_at = null }) {
   return withIdempotency(db, idempotency_key, () => {
     const d = mustDist(db, dist_id);
     if (d.current_step !== 4) throw new DomainError('CONFLICT', '当前不在签收步骤');
-    if (db.policy['signoff.self_only'] === 'true') {
-      const r = db.distribution_recipient.find(x => x.distribution_id === dist_id && x.employee_id === actor_id);
-      if (!r) throw new DomainError('FORBIDDEN', '只能签收本人名下的物资（self-only）');
-      if (r.status === '已接收') return { ok: true, noop: true };  // 幂等
-      r.status = '已接收'; r.received_at = new Date().toISOString();
-    } else {
-      throw new DomainError('FORBIDDEN', '策略未启用 self-only，暂不支持代签');
+
+    // 目标接收人：若指定 recipient_id 则代签，否则本人签收
+    const targetId = recipient_id || actor_id;
+    const r = db.distribution_recipient.find(x => x.distribution_id === dist_id && x.employee_id === targetId);
+    if (!r) throw new DomainError('FORBIDDEN', '接收人不在该单据接收人池');
+    if (r.status === '已接收') return { ok: true, noop: true };  // 幂等
+
+    // 权限判定：本人签收 OR 代签白名单(position 匹配 signoff.proxy_positions)
+    let mode = 'self';
+    if (targetId !== actor_id) {
+      const actor = db.employees.get(actor_id);
+      const proxyPositions = (db.policy['signoff.proxy_positions'] || '').split(',').map(s => s.trim()).filter(Boolean);
+      const pos = (actor && actor.position) || '';
+      const whitelisted = proxyPositions.some(kw => pos.includes(kw));
+      if (!whitelisted) throw new DomainError('FORBIDDEN', '非接收人本人，且岗位不在代签白名单');
+      mode = 'proxy';
     }
+
+    r.status = '已接收'; r.received_at = new Date().toISOString();
     const recips = db.distribution_recipient.filter(x => x.distribution_id === dist_id);
     const allReceived = recips.every(r => r.status === '已接收');
     if (allReceived) {
@@ -252,8 +264,11 @@ function signoff(db, { dist_id, actor_id, idempotency_key = null, captured_at = 
       s4.status = '已完成'; s4.completed_at = new Date().toISOString();
       d.status = '已完成';
     }
-    recordEvent(db, { ref_type: 'distribution', ref_id: dist_id, step_no: 4, event: 'signoff', actor_id, captured_at });
-    return { ok: true, allReceived };
+    recordEvent(db, {
+      ref_type: 'distribution', ref_id: dist_id, step_no: 4, event: 'signoff', actor_id, captured_at,
+      payload: { received_by: targetId, signed_by: actor_id, mode }
+    });
+    return { ok: true, allReceived, received_by: targetId, signed_by: actor_id, mode };
   });
 }
 

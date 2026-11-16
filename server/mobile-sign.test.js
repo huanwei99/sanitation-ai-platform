@@ -117,19 +117,27 @@ test('DR-T05-02: 待签收列表 — 已移交接收人能看到待办', async (
   } finally { await cleanup(app, dbPath); }
 });
 
-test('DR-T05-03: 本人签收成功;非本人签收 403(self-only)', async () => {
+test('DR-T05-03: 代签白名单 — 非白名单代签 403;本人/白名单可签', async () => {
   const { app, dbPath, cookies } = await buildFixture();
   try {
     const id = await createAndIssueToWorkers(app, cookies);
-    // 非本人:库管员 5001 想替 5003 签 → 403
-    const other = await app.inject({ method: 'POST', url: `/distribution/${id}/receive`, headers: { cookie: cookies.keeper } });
-    assert.equal(other.statusCode, 403, `非本人签收应 403: ${other.body}`);
-    assert.match(other.json().error, /self_only|本人/);
+    // 非白名单代签:库管员 5001(仓库管理员)替 5003 签 → 403
+    const other = await app.inject({
+      method: 'POST', url: `/distribution/${id}/receive`,
+      headers: { cookie: cookies.keeper }, payload: { recipient_id: 5003 }
+    });
+    assert.equal(other.statusCode, 403, `非白名单代签应 403: ${other.body}`);
+    assert.match(other.json().error, /白名单/);
 
-    // 本人:班组长-张 签自己名下 → 200
-    const self = await app.inject({ method: 'POST', url: `/distribution/${id}/receive`, headers: { cookie: cookies.workerA } });
-    assert.equal(self.statusCode, 200, `本人签收应 200: ${self.body}`);
-    assert.equal(self.json().received_by, 5003);
+    // 白名单代签:班组长-刘 5004 替 班组长-张 5003 签 → 200, mode=proxy
+    const proxy = await app.inject({
+      method: 'POST', url: `/distribution/${id}/receive`,
+      headers: { cookie: cookies.workerB }, payload: { recipient_id: 5003 }
+    });
+    assert.equal(proxy.statusCode, 200, `白名单代签应 200: ${proxy.body}`);
+    assert.equal(proxy.json().mode, 'proxy');
+    assert.equal(proxy.json().received_by, 5003);
+    assert.equal(proxy.json().signed_by, 5004);
   } finally { await cleanup(app, dbPath); }
 });
 

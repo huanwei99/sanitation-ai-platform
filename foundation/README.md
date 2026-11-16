@@ -41,7 +41,7 @@ node --test tests/sql.test.js      # SQL 版： 9 pass / 0 fail
 | A-T12 | 单据状态可查（持久化由 Phase-0 SQLite 承担） | **G4 无持久化** |
 
 ## engine.js 与 SQL 的关系
-`engine.js` 用纯 JS 实现了与 `001_init.sql` **完全一致的不变量**（库存非负、步骤只进不退、幂等、self-only、哈希链）。
+`engine.js` 用纯 JS 实现了与 `001_init.sql` **完全一致的不变量**（库存非负、步骤只进不退、幂等、代签白名单、哈希链）。
 落地时把这些校验搬进 SQL 事务（`applyMovement` → 一个 serializable 事务里「校验+扣减+写流水」）即可。
 **先跑测试证明逻辑正确，再落到 SQL** —— 这是验证过的路径，不是凭空设计。
 
@@ -50,7 +50,7 @@ node --test tests/sql.test.js      # SQL 版： 9 pass / 0 fail
 | # | 决策 | 结论 | 落地位置 |
 |---|---|---|---|
 | 1 | 审批是否强制前置 | **是**，强制 | `org_policy.distribution.require_approval='true'`（001/002 SQL）；A-T3 测试锁定 |
-| 2 | 一线是否有手机+账号 | **是**，有 | `signoff.self_only='true'` 维持；A-T5 测试锁定（无需 PIN 兜底） |
+| 2 | 一线是否有手机+账号 | **代签收（白名单）**：本人可签，班组长/车队长/队长可代签 | `signoff.self_only='false'` + `signoff.proxy_positions='班组长,车队长,队长'`（006 迁移）；A-T5 测试锁定（self + 白名单 proxy 成功，非白名单 403） |
 | 3 | 单仓还是多仓 | **多仓** | `migrations/002_multi_depot.sql`（depot 表 + 库存/流水/单据挂仓）；引擎按仓校验隔离；**A-T13** 测试锁定（跨仓出库拒绝、仓间库存隔离、流水按仓记账） |
 | 4 | 目标客群与付费 | **有付费买家，免费试用先行** | 进入执行计划的 GTM 工作流（见 ROADMAP-EXECUTION-PLAN.md：试用→转化漏斗） |
 | 5 | 路线图负责人 | **Daniel** | 执行计划日期与决策点归 Daniel 拍板（见 ROADMAP-EXECUTION-PLAN.md） |

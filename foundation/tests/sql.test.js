@@ -20,6 +20,7 @@ function freshDb() {
   const db = new DatabaseSync(':memory:');
   db.exec(fs.readFileSync(MIG('001_init.sql'), 'utf8'));
   db.exec(fs.readFileSync(MIG('002_multi_depot.sql'), 'utf8'));
+  db.exec(fs.readFileSync(MIG('006_proxy_signoff.sql'), 'utf8'));  // 代签白名单策略
   db.exec('PRAGMA foreign_keys = ON;');
   seed(db);
   return db;
@@ -185,22 +186,34 @@ function transfer(db, { dist_id, actor_id, recipient_ids }) {
   });
 }
 
-function signoff(db, { dist_id, actor_id, idempotency_key = null }) {
+function signoff(db, { dist_id, actor_id, recipient_id = null, idempotency_key = null }) {
   return withIdem(db, idempotency_key, actor_id, () => withTx(db, () => {
     const d = mustDist(db, dist_id);
     if (d.current_step !== 4) throw new SqlError('CONFLICT', '不在签收步骤');
-    if (policy(db, 'signoff.self_only') !== 'true') throw new SqlError('FORBIDDEN', '策略未启用 self-only');
-    const r = db.prepare('SELECT * FROM distribution_recipient WHERE distribution_id=? AND employee_id=?').get(dist_id, actor_id);
-    if (!r) throw new SqlError('FORBIDDEN', '只能签收本人名下物资(self-only)');
+    // 目标接收人：指定 recipient_id 则代签，否则本人签收
+    const targetId = recipient_id || actor_id;
+    const r = db.prepare('SELECT * FROM distribution_recipient WHERE distribution_id=? AND employee_id=?').get(dist_id, targetId);
+    if (!r) throw new SqlError('FORBIDDEN', '接收人不在该单据接收人池');
     if (r.status === '已接收') return { ok: true, noop: true };
+    // 权限：本人 OR 代签白名单(position 匹配 signoff.proxy_positions)
+    if (targetId !== actor_id) {
+      const actor = db.prepare('SELECT position FROM employees WHERE employee_id=?').get(actor_id);
+      const kws = (policy(db, 'signoff.proxy_positions') || '').split(',').map(s => s.trim()).filter(Boolean);
+      const pos = (actor && actor.position) || '';
+      if (!kws.some(kw => pos.includes(kw))) throw new SqlError('FORBIDDEN', '非接收人本人，且岗位不在代签白名单');
+    }
+    const mode = targetId === actor_id ? 'self' : 'proxy';
     db.prepare("UPDATE distribution_recipient SET status='已接收', received_at=CURRENT_TIMESTAMP WHERE id=?").run(r.id);
     const left = db.prepare("SELECT COUNT(*) c FROM distribution_recipient WHERE distribution_id=? AND status<>'已接收'").get(dist_id).c;
     if (left === 0) {
       db.prepare("UPDATE workflow_step SET status='已完成',completed_at=CURRENT_TIMESTAMP WHERE ref_type='distribution' AND ref_id=? AND step_no=4").run(dist_id);
       db.prepare("UPDATE distribution SET status='已完成',updated_at=CURRENT_TIMESTAMP WHERE id=?").run(dist_id);
     }
-    recordEvent(db, { ref_type: 'distribution', ref_id: dist_id, step_no: 4, event: 'signoff', actor_id });
-    return { ok: true };
+    recordEvent(db, {
+      ref_type: 'distribution', ref_id: dist_id, step_no: 4, event: 'signoff', actor_id,
+      payload: { received_by: targetId, signed_by: actor_id, mode }
+    });
+    return { ok: true, received_by: targetId, signed_by: actor_id, mode };
   }));
 }
 
@@ -281,12 +294,28 @@ test('A-T3 审批前置(G3)', () => {
   assert.throws(() => approveDistribution(db, { dist_id: id, actor_id: 4, approval_completed: false }), /审批/);
 });
 
-test('A-T5 仅本人签收(反舞弊)', () => {
+test('A-T5 代签收(白名单)', () => {
   const db = freshDb();
-  const id = approvedDist(db, { total_people: 40, lines: [{ item_id: 'INV-001', per_person_qty: 2 }], recipients: [7, 13] });
+  // 本人签收
+  const id = approvedDist(db, { total_people: 40, lines: [{ item_id: 'INV-001', per_person_qty: 2 }], recipients: [13] });
   driveToStep4(db, id);
-  assert.equal(signoff(db, { dist_id: id, actor_id: 13 }).ok, true);      // 接收人13签自己→成功
-  assert.throws(() => signoff(db, { dist_id: id, actor_id: 4 }), /self-only|FORBIDDEN/); // 非接收人→拒
+  const self = signoff(db, { dist_id: id, actor_id: 13 });
+  assert.equal(self.ok, true);
+  assert.equal(self.mode, 'self');
+
+  // 白名单代签：7(车队长,非接收人)替 13 签
+  const id2 = approvedDist(db, { total_people: 40, lines: [{ item_id: 'INV-001', per_person_qty: 2 }], recipients: [13] });
+  driveToStep4(db, id2);
+  const proxy = signoff(db, { dist_id: id2, actor_id: 7, recipient_id: 13 });
+  assert.equal(proxy.ok, true);
+  assert.equal(proxy.mode, 'proxy');
+  assert.equal(proxy.received_by, 13);
+  assert.equal(proxy.signed_by, 7);
+
+  // 非白名单代签：4(项目经理)替 13 签 → FORBIDDEN
+  const id3 = approvedDist(db, { total_people: 40, lines: [{ item_id: 'INV-001', per_person_qty: 2 }], recipients: [13] });
+  driveToStep4(db, id3);
+  assert.throws(() => signoff(db, { dist_id: id3, actor_id: 4, recipient_id: 13 }), /代签白名单|FORBIDDEN/);
 });
 
 test('A-T6 幂等重放不重复扣减', () => {

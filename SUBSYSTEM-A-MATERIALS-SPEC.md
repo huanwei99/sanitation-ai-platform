@@ -246,11 +246,11 @@ Error contract: `409` for stock-shortfall / stale-step conflicts (body names the
 | Approve | – | – | – | – | ✓ | ✓ |
 | 仓库出库 (step1) | – | – | – | ✓ | ✓ | – |
 | 发放人接收/移交 (step2/3) | – | – | ✓ (own) | – | ✓ | – |
-| 接收人签收 (step4) | ✓ (self only) | ✓ (self) | ✓ (self) | – | – | – |
+| 接收人签收 (step4) | ✓ (self/proxy) | ✓ (self/proxy) | ✓ (self/proxy) | – | – | – |
 | Adjust stock / inbound | – | – | – | ✓ | ✓ | – |
 | View audit trail | – | – | own | own | ✓ | ✓ |
 
-**Sign-off self-only rule** (§4.1) is the control that makes the chain defensible for 履约/审计 — a supervisor cannot sign on a worker's behalf.
+**Sign-off proxy-whitelist rule** (§4.1) balances usability and auditability — only whitelisted positions (班组长/车队长/队长) may sign on a worker's behalf, and every signoff event records both `received_by` and `signed_by` so the chain remains defensible for 履约/审计.
 
 ---
 
@@ -266,7 +266,7 @@ Each is automatable against the API. The prototype's manual scenarios (T01–T15
 
 **A-T4 Partial transfer then sign-off.** 3 recipients. step3 transfer 2 of 3 → step3 still 进行中, note "已移交 2/3". Transfer 3rd → step3 已完成, current_step=4. Sign all 3 (as themselves) → distribution 已完成.
 
-**A-T5 Sign-off self-only (anti-fraud).** Attempt step4 sign-off for recipient `employee_id=7` authenticated as `employee_id=13` → `403`.
+**A-T5 Sign-off proxy whitelist (代签收).** Sign-off supports two modes: (1) self sign-off — recipient signs for themselves; (2) proxy sign-off — a holder of a whitelisted position (`signoff.proxy_positions`, e.g. 班组长/车队长/队长) signs on behalf of a recipient by passing `recipient_id`. A non-whitelisted actor signing for another recipient → `403`. The signoff event records `received_by`, `signed_by`, and `mode` (self/proxy).
 
 **A-T6 Idempotent offline replay.** Complete step1 with `Idempotency-Key=K`. Replay same request with `K` (simulating reconnect) → `200`, stock deducted **once**, one movement row.
 
@@ -313,7 +313,7 @@ Each is automatable against the API. The prototype's manual scenarios (T01–T15
 | `approveDistribution()` | `POST /distributions/{id}/approve` (+ G3 gate) |
 | `executeMatDistStep()` step1 | `/steps/1/complete` + **transactional stock deduct (G1/G2)** |
 | `showTransferModal`/`confirmTransfer()` | `POST /distributions/{id}/transfer` (partial, idempotent) |
-| `confirmReceive`/`batchConfirmReceive()` | `POST /distributions/{id}/signoff` (self-only, A-T5) |
+| `confirmReceive`/`batchConfirmReceive()` | `POST /distributions/{id}/signoff` (self/proxy-whitelist, A-T5) |
 | `executeReqStep()` | `/requisitions/{id}/steps/{n}/complete` (+ G6 stock deduct) |
 | inbound `stock += qty` (render) | `/inbound/{id}/quality` on 合格 |
 | outbound `stock -= qty` (seed only) | `stock_movement` ledger (replaces hand-authored rows) |
