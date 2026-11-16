@@ -13,6 +13,7 @@ const { registerOutboxRoutes } = require('./outbox');
 const { registerDepotTransferRoutes } = require('./depot-transfer');
 const { registerSeedImportRoutes } = require('./seed-import');
 const { registerRequisitionRoutes } = require('./requisition');
+const { registerReportRoutes } = require('./reports');
 
 async function buildApp(opts = {}) {
   let fastify;
@@ -87,6 +88,9 @@ async function buildApp(opts = {}) {
 
   // ---- seed 导入(P0-T07):物料/员工/仓库批量导入,幂等 ----
   await registerSeedImportRoutes(fastify);
+
+  // ---- 报表(P1-T04):流水/低库存/发放统计 ----
+  await registerReportRoutes(fastify);
 
   // ---- 静态文件托管(同源方案,替代后续 Caddy 直接 serve) ----
   // Phase-0 架构要求:生产环境由 Caddy 托管静态文件,
