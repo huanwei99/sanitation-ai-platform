@@ -186,6 +186,35 @@
 - **D1:** `PROJECT-SOLUTION-DOC.md` still carries **no deprecation banner** (header unchanged) → recommendation #3 stands.
 - **Prototype defects G1/G4 are unchanged in `index.html`:** `executeMatDistStep` step 1 still touches no stock; `handleLogin` still mocks `permissions:['all']`. The fixes are server-side; the prototype remains a UI mock — confirm whether QW-T01's delete-and-seed plan is now the intended path for it.
 - **DEMAND-POOL bookkeeping:** all 29 tasks remain 待认领 even though the work landed — the claim workflow was bypassed by direct implementation. Update statuses per the project's own evidence rule ("只有 commit/测试输出能改变状态").
-- **A2 and I1 remain open:** migrations 003/004 add no triggers (append-only still not DB-enforced), and the SQL suite is unchanged (still no SQL A-T7 or true-restart A-T12).
+- **A2 and I1 remain open:** migrations 003/004 add no triggers (append-only still not DB-enforced), and the concurrency/oversell path (A-T7) is **still untested at the SQL/server layer** — the server suite covers self-only, idempotency, approval gating, and the hash chain, but no concurrent step-1 oversell case.
+
+---
+
+## 11. Addendum update — re-verification executed against `a85565d` (2026-11-16)
+
+The re-run recommended at the close of §10 has now been **executed**, not just proposed. Evidence below is from real runs on the current `main` tree.
+
+**Server test suite — actually executed (confirms the commit's claim):**
+- `cd server && npm install` → 52 packages, **0 vulnerabilities** (fastify ^5, `@fastify/cookie`, bcryptjs; `better-sqlite3` is an *optional* dep — the code prefers Node's built-in `node:sqlite`, so no native compile is needed on Node 22.5+).
+- `npm test` → **35 pass / 0 fail**. The commit's "验证 35 pass" claim is therefore **confirmed by execution**, not just by counting `test()` declarations.
+- The 35 cases are genuine **server-side enforcement** tests, not client gating: they assert **401/403** on unauthenticated/unauthorized access, **self-only** sign-off (`distribution.js:407`), **approval forced as precondition + self-approval rejected** (`distribution.js:182,186`), **idempotent replay returns the same response**, **stock deduct + `stock_movement` + hash-chain integrity**, and the four "A/B级" fixes (审批鉴权 A-2, 签收假成功 A-3, 审计限权 B-1/B-2). This is the RBAC/AuthZ move from browser to API middleware that §2 called "the single most important security change" — now real.
+
+**Foundation suite — no regression:**
+- `node --test tests/engine.test.js` → **13 pass / 0 fail**; `node --test tests/sql.test.js` → **9 pass / 0 fail**.
+- **Combined total: 57 tests passing** (13 + 9 + 35), up from the **22** this report originally recorded.
+
+**Re-verified still-open at `a85565d` (unchanged from §10):**
+- **D1** — still no deprecation banner on `PROJECT-SOLUTION-DOC.md`.
+- **A2** — `grep -ri "CREATE TRIGGER" foundation/migrations/` → **no matches**; append-only on `chain_event`/`stock_movement` is still convention-only.
+- **I1** — A-T7 (concurrent step-1 oversell) is asserted in the **in-memory** engine suite but has **no server/SQL-layer equivalent**; true-restart A-T12 is covered for migration replay (`DR-T02-02`) but the distribution path's concurrency is not.
+- **G1/G4** — still present in the prototype `index.html` (`handleLogin` still mocks `permissions:['all']` at line 2321); server-side fixes only.
+- **DEMAND-POOL** — still 29× 待认领.
+
+**What this changes in the report's verdicts:**
+- **A1 / M3 / I2 (superseded):** the architecture is no longer "design only" — a working Fastify + SQLite + session-auth + RBAC server exists, is tested (35/35), and is CI-guarded. The §0 headline "no server, `package.json`, or CI exists" is now historically true only of the `5f6d850` snapshot.
+- **Recommendation #2 ("Add CI now") — done.** Recommendation #1 (staff the sprint) — overtaken by delivery. **Recommendation #3 (D1 banner) — still the top open action**, and now the cheapest remaining item.
+- **Residual risk shifts from "can they build it?" to "is what they built correct and maintained?"** Concretely: (a) land the **append-only triggers** (A2) so the tamper-evident selling point is DB-enforced, not app-enforced; (b) add a **server-layer A-T7 concurrency test** (I1) to prove no-oversell under real SQLite serialization; (c) reconcile **DEMAND-POOL/DR-SPRINT-TRACKING** with what shipped so the evidence rule isn't undercut; (d) finish the **D1 banner**.
+
+**Overlap note:** the remote also added its own `COMPREHENSIVE-AUDIT-AND-EVOLUTION-PLAN.md` (`84478aa`), whose scope overlaps this report; the C-1/C-2①/C-2②/C-3 labels above come from its numbering. This report has **not** independently audited that plan in full — it reconciles only at the shared findings (both flag the auth/distribution paths and the still-open A2/I1/D1 items). A dedicated read is warranted before treating the two documents as a single source of truth.
 
 **Net:** the report's #1 risk (execution capacity) was answered in the best possible way — code landed ahead of schedule. The priority stack collapses to: re-run this verification against `a85565d` (especially the new auth/distribution code paths, the correctness of the pushed fixes, and the "35 pass" claim via `npm test`), land the D1 deprecation banner, and reconcile DEMAND-POOL / DR-SPRINT-TRACKING with what actually shipped.
