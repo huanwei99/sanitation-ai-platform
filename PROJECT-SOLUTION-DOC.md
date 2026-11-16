@@ -1,6 +1,19 @@
 # 环卫·清雪智慧运营管理平台
 ## 项目解决方案文档（正式版）
 
+> ## ⚠️ 阅读前必读（状态提示 / DEPRECATION NOTICE）
+> **本文档中关于「数据持久化」与「是否引入后端」的章节已被后续决策取代，不再是当前基线。**
+>
+> | 本文原表述 | 当前权威基线 | 取代依据 |
+> |---|---|---|
+> | §3.1「IndexedDB 主存储」、§二.1「渐进增强 localStorage→IndexedDB」 | **持久化 = 服务端数据库（SQLite/Postgres），非 IndexedDB** | `DOC-RECONCILIATION-AND-ROADMAP.md`；`PHASE0-BACKEND-RBAC-ARCHITECTURE.md` |
+> | §二.1「能纯前端解决的不引入后端；后端为中期可选项」 | **后端 = Phase-0 现在（必需，非可选）** | 同上；本项目风险 R4 自认「BroadcastChannel 不跨设备」 |
+> | §六 开发计划 P0 第 1–2 周「数据层（IndexedDB）」 | **P0 = 服务端骨架 + 认证 + RBAC + 离线重放** | `ROADMAP-EXECUTION-PLAN.md` v1.1；Dry-Run 冲刺已落地 `server/` |
+>
+> **原因（一句话）：** 跨设备现场签收（保洁员/班组长用手机签收 → 办公室 PC）在纯前端/IndexedDB 架构下**架构上不可能**，服务端是必需品。
+>
+> **本文其余内容仍有效：** 整体 SOP（第一部分）、权限模型（§2）、模块清单、数据生命周期与主/事务数据清单（第四部分）、风险登记（第五部分）可继续参考，但**请勿按本文的 IndexedDB-first P0 实施**。当前以 `server/` + `foundation/migrations/` 为实现基线。
+
 | 项目名称 | 环卫·清雪智慧运营管理平台 |
 |---|---|
 | 文档版本 | V1.0（正式发布版） |

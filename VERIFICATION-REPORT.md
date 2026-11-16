@@ -262,4 +262,44 @@ These are **mutually exclusive controls.** Self-only exists specifically to prev
 - **This report's still-open A2/I1/D1 are not tracked by the overlap doc**, so the two documents are *not* redundant — the overlap doc misses all three. Keep this report as the technical-completeness source of truth for those.
 - **Recommended action stack is unchanged and now fully evidence-backed:** resolve self-only-vs-代管 (new, highest value) → D1 banner (minutes) → append-only triggers (A2) → server-layer A-T7 (I1) → reconcile DEMAND-POOL with what shipped.
 
-**Net:** the report's #1 risk (execution capacity) was answered in the best possible way — code landed ahead of schedule. The priority stack collapses to: re-run this verification against `a85565d` (especially the new auth/distribution code paths, the correctness of the pushed fixes, and the "35 pass" claim via `npm test`), land the D1 deprecation banner, and reconcile DEMAND-POOL / DR-SPRINT-TRACKING with what actually shipped.
+---
+
+## 13. Remediation pass — items #2–#4 executed (2026-11-16)
+
+The fork-independent half of the §12.5 stack has been **landed** (per the validator's parallel-tracks recommendation: Daniel decides self-only-vs-代管 while fork-independent items ship). Each item below is code-verified and the full suite re-run.
+
+**#0 — Orphan-line defect fixed (found by validator).** A stranded duplicate of §10's old "Net:" paragraph had been left at end-of-file after §11/§12 were inserted ahead of it. As the document's final word it said "re-run this verification against `a85565d`" — which §11 already did. **Deleted**; the file now ends at the §12.5 stack.
+
+**#2 — D1 deprecation banner landed.** `PROJECT-SOLUTION-DOC.md` now opens with a `⚠️ 阅读前必读` notice (positioned before the metadata table, body untouched) with a 3-row table mapping the superseded claims → current baseline → superseding doc:
+- IndexedDB 主存储 → **服务端数据库 (SQLite/Postgres)**
+- 「不引入后端 / 后端为中期可选项」 → **后端 = Phase-0 现在必需**
+- §六 P0「数据层（IndexedDB）」 → **P0 = 服务端骨架 + 认证 + RBAC + 离线重放**
+
+with the one-line reason (cross-device field sign-off is architecturally impossible frontend-only) and an explicit note that the SOP / permission model / data-lifecycle sections remain valid. A reader of the formal doc alone can no longer build the superseded IndexedDB-first P0.
+
+**#3 — A2 append-only triggers landed (migration `005_append_only_guards.sql`).** `chain_event` and `stock_movement` are now **DB-enforced append-only** via SQLite `BEFORE UPDATE/DELETE … RAISE(ABORT)` triggers — closing A2 (previously convention-only). Design decision, documented in the migration header:
+- `stock_movement` — **unconditional** guard (verified: no legitimate UPDATE/DELETE path anywhere in `server/*.js`).
+- `chain_event` — **default guard with a deliberate escape hatch**: the A-T10 tamper-detection tests must genuinely `UPDATE` a row to prove the hash chain catches tampering, so those tests now `DROP TRIGGER` → tamper → assert `verifyChain=false` (→ re-created next boot; per-test temp DBs are discarded). Production never drops it.
+- **Manually verified:** on a fresh DB, all 4 mutations (UPDATE/DELETE × 2 tables) are blocked; the A-T10 tamper tests still pass (the guard does not neuter them).
+- The migration is **idempotent** (`DROP TRIGGER IF EXISTS` + `CREATE TRIGGER`) and auto-discovered by the existing `user_version` runner.
+
+**#4 — I1 closed: server-layer A-T7 concurrency test landed (`server/concurrency-at7.test.js`).** Two approved distributions each request the last 60 units of `INV-001` concurrently; asserts **exactly one 200 and one 409**, the 409 body names `item_id`/available/requested (A-T2 contract), final stock = 0 and **non-negative** (no oversell), exactly **one** `stock_movement` with `qty_after=0`, winner status → 发放中 while loser stays 已批准. This proves the no-oversell invariant at the real SQLite layer (previously only in the in-memory engine). Documented limitation: better-sqlite3 is synchronous, so a single connection serializes the two injections — the test validates the **invariant** (guarded `UPDATE … WHERE stock >= ?` inside one transaction), not a specific thread-interleaving; this matches the in-memory A-T7's semantics.
+
+**Two consequential test-harness fixes** (needed because migration 005 changed the migration count 4→5):
+- `server/db.test.js` `DR-T02-01` / `DR-T02-03` hard-coded `expected = 4`. Replaced with a **dynamic count** (`fs.readdirSync(MIGRATIONS_DIR)`), so they no longer break on the next migration addition.
+
+**CI hardened:** `.github/workflows/ci.yml` now also runs `foundation/tests/sql.test.js` (the real-SQLite suite) — it previously ran only `engine.test.js` + server `npm test`, so the SQL suite was **not** CI-guarded. `npm test` has no hard-coded count, so the new A-T7 case is picked up automatically.
+
+**Test totals (executed):**
+| Suite | Before | After |
+|---|---|---|
+| server (`npm test`) | 35 | **36** (+A-T7) |
+| foundation engine | 13 | 13 |
+| foundation SQL | 9 | 9 |
+| **Total** | **57** | **58** |
+
+**Remaining open (unchanged):**
+- **#1 self-only vs 代管** — still Daniel's call; deliberately **no new self-only coverage** added (would be first to be rewritten if 代管 wins). A-T5/DR-T05-03 still lock in self-only.
+- **Overlap-doc one-line fixes** (scrypt→bcrypt, 数百→57 tests) — left for the team, documented in §12.3.
+- **DEMAND-POOL 29× 待认领** — tracking-board rewrite awaiting go-ahead.
+- Minor: the append-only triggers are **retroactive** — existing deployed DBs need migration 005 applied on next boot (the `user_version` runner does this automatically).

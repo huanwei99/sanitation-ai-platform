@@ -8,7 +8,12 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { initDb, runMigrations, getPragmaNumber, sqliteBackend } = require('./db');
+const { initDb, runMigrations, getPragmaNumber, sqliteBackend, MIGRATIONS_DIR } = require('./db');
+
+// 迁移文件数量(动态统计,避免新增迁移时硬编码失效)
+function expectedMigrationCount() {
+  return fs.readdirSync(MIGRATIONS_DIR).filter(f => f.endsWith('.sql')).length;
+}
 
 // 临时文件库(每次测试独立,测完删除)
 function tmpDbPath() {
@@ -20,7 +25,7 @@ test('DR-T02-01: 空库执行 001+002 迁移无错', () => {
   const p = tmpDbPath();
   const { db, migrations } = initDb(p);
 
-  assert.equal(migrations.length, 4, '应执行四份迁移(001+002+003+004)');
+  assert.equal(migrations.length, expectedMigrationCount(), `应执行全部 ${expectedMigrationCount()} 份迁移(001…005)`);
   assert.equal(migrations[0].skipped, false, '001 首次应执行');
   assert.equal(migrations[1].skipped, false, '002 首次应执行');
 
@@ -96,14 +101,14 @@ test('DR-T02-03: user_version 幂等——重复调用不报错', () => {
 
   // 第二次调 runMigrations:应全部 skipped
   const results = runMigrations(db);
-  assert.equal(results.length, 4);
-  assert.equal(results[0].skipped, true, '001 应跳过');
-  assert.equal(results[1].skipped, true, '002 应跳过');
-  assert.equal(results[2].skipped, true, '003 应跳过');
-  assert.equal(results[3].skipped, true, '004 应跳过');
+  const expected = expectedMigrationCount();
+  assert.equal(results.length, expected, `应有 ${expected} 份迁移记录`);
+  for (let i = 0; i < expected; i++) {
+    assert.equal(results[i].skipped, true, `第 ${i + 1} 份迁移应跳过`);
+  }
 
-  // user_version 不变(仍是 4)
-  assert.equal(getPragmaNumber(db, 'user_version'), 4);
+  // user_version 不变(等于迁移总数)
+  assert.equal(getPragmaNumber(db, 'user_version'), expected);
 
   db.close();
   fs.rmSync(path.dirname(p), { recursive: true });

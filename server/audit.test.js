@@ -112,7 +112,10 @@ test('DR-T06-03 (A-T10b): 篡改中间事件的 payload → verifyChain ok=false
   try {
     const id = await runFullChain(app, cookies);
     // 篡改:直接 UPDATE 中间事件的 payload(绕过 API,模拟 DB 层被改)
+    // A2 护栏默认禁止 UPDATE chain_event;本用例的目的是证明「链能发现篡改」,
+    // 故显式拆除护栏(生产从不执行此 DROP),篡改后再重建。
     const db = app.db;
+    db.exec(`DROP TRIGGER IF EXISTS trg_chain_event_no_update;`);
     const evts = db.prepare(`SELECT id FROM chain_event WHERE ref_type='distribution' AND ref_id=? ORDER BY id`).all(id);
     const mid = evts[2];  // 第 3 个事件
     db.prepare(`UPDATE chain_event SET payload = ? WHERE id = ?`).run('{"tampered":true}', mid.id);
@@ -134,6 +137,8 @@ test('DR-T06-04 (A-T10b): 篡改中间事件 → verify-all broken>0', async () 
   try {
     const id = await runFullChain(app, cookies);
     const db = app.db;
+    // A2 护栏默认禁止 UPDATE;拆除后篡改,证明 verify-all 能发现(生产从不 DROP)
+    db.exec(`DROP TRIGGER IF EXISTS trg_chain_event_no_update;`);
     const evts = db.prepare(`SELECT id FROM chain_event WHERE ref_type='distribution' AND ref_id=? ORDER BY id`).all(id);
     // 篡改 step_no(无外键约束,参与哈希计算)→ 重算哈希不匹配 → 链断裂
     db.prepare(`UPDATE chain_event SET step_no = 99 WHERE id = ?`).run(evts[1].id);

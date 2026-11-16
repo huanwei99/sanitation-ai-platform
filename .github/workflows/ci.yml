@@ -38,3 +38,8 @@ jobs:
       - name: Run foundation engine tests
         working-directory: foundation/tests
         run: node --test engine.test.js
+
+      # ---- foundation SQL 版测试(真 SQLite,跑迁移+事务) ----
+      - name: Run foundation SQL tests
+        working-directory: foundation/tests
+        run: node --test sql.test.js
