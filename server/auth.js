@@ -68,6 +68,85 @@ function effectivePermissions(db, employeeId) {
   };
 }
 
+// ---------- 权限判定(P0-T01 三要素:模块/操作/范围) ----------
+
+/**
+ * 判定主体是否有权对 target 执行 module.action。
+ * - admin_level >= 3(总部)放行全部
+ * - 模块操作须在 perm.modules 中(支持 'ALL' 通配)
+ * - 数据范围由 isWithinScope 校验(self/team/dept/project/region/group)
+ * @param {object} db        数据库
+ * @param {object} principal req.principal(含 employee_id)
+ * @param {string} module    模块名,如 'distribution'
+ * @param {string} action    操作名,如 'edit'
+ * @param {number|null} targetEmployeeId 被操作目标工号;null 表示不做范围校验
+ */
+function hasPermission(db, principal, module, action, targetEmployeeId = null) {
+  const perm = effectivePermissions(db, principal.employee_id);
+  if (!perm) return false;
+  if (perm.admin_level >= 3) return true;  // 总部管理员放行
+
+  const mod = perm.modules[module];
+  if (!mod) return false;
+  const actionOk = mod === 'ALL' || (Array.isArray(mod) && (mod.includes('ALL') || mod.includes(action)));
+  if (!actionOk) return false;
+
+  // 无目标或目标即本人 → 范围天然满足
+  if (targetEmployeeId == null || targetEmployeeId === principal.employee_id) return true;
+  return isWithinScope(db, perm, principal.employee_id, targetEmployeeId);
+}
+
+/**
+ * 数据范围校验:self/team/dept/project/region/group
+ */
+function isWithinScope(db, perm, principalId, targetId) {
+  if (perm.scope === 'group') return true;
+  if (perm.scope === 'self') return targetId === principalId;
+  const me = db.prepare(
+    'SELECT department, team_id, project_id, region_id FROM employees WHERE employee_id = ?'
+  ).get(principalId);
+  const tgt = db.prepare(
+    'SELECT department, team_id, project_id, region_id FROM employees WHERE employee_id = ?'
+  ).get(targetId);
+  if (!me || !tgt) return false;
+  switch (perm.scope) {
+    case 'team':    return me.team_id != null && me.team_id === tgt.team_id;
+    case 'dept':    return !!me.department && me.department === tgt.department;
+    case 'project': return me.project_id != null && me.project_id === tgt.project_id;
+    case 'region':  return me.region_id != null && me.region_id === tgt.region_id;
+    default:        return false;
+  }
+}
+
+/**
+ * 层级授权判定(P0-T01):只能向下授权,不能向上修改;同级互不干涉。
+ * - granter.admin_level 必须 > target 当前 admin_level(不能改上级/同级)
+ * - 授予的 newAdminLevel 必须 < granter.admin_level(不能任命同级或上级)
+ */
+function canModifyPermissions(granterPerm, targetCurrentAdminLevel, newAdminLevel) {
+  if (!granterPerm || granterPerm.admin_level <= 0) return false;
+  if (targetCurrentAdminLevel >= granterPerm.admin_level) return false;
+  if (newAdminLevel >= granterPerm.admin_level) return false;
+  return true;
+}
+
+/**
+ * Fastify preValidation 钩子工厂:requirePermission(module, action)
+ * 从 req.principal 取主体,目标工号从 req.params.employee_id 或 req.body.target_id 取。
+ */
+function requirePermission(module, action) {
+  return async (req, reply) => {
+    const principal = req.principal;
+    if (!principal) return reply.code(401).send({ ok: false, error: '未登录' });
+    const targetId = req.params?.employee_id
+      ? Number(req.params.employee_id)
+      : (req.body?.target_id ? Number(req.body.target_id) : null);
+    if (!hasPermission(req.app.db, principal, module, action, targetId)) {
+      return reply.code(403).send({ ok: false, error: `无权限:${module}.${action}` });
+    }
+  };
+}
+
 // ---------- 锁定逻辑 ----------
 function isLocked(row) {
   return !!row.locked_at;   // 锁定后需管理员解锁才清 locked_at
@@ -303,6 +382,39 @@ async function registerAuthRoutes(app, opts = {}) {
 
     return reply.send({ ok: true, employee_id: targetId, unlocked_by: operatorId });
   });
+
+  // ---- PUT /auth/permissions/:employee_id (层级授权,P0-T01) ----
+  // 只能向下授权:granter.admin_level 必须严格大于 target 当前级别与新级别。
+  app.put('/auth/permissions/:employee_id', {
+    preValidation: [app.authenticate]
+  }, async (req, reply) => {
+    const targetId = Number(req.params.employee_id);
+    const { mode, level, scope, modules, admin_level } = req.body || {};
+    const newAdminLevel = Number(admin_level) || 0;
+
+    const granterPerm = effectivePermissions(app.db, req.principal.employee_id);
+    const targetRow = app.db.prepare(
+      'SELECT admin_level FROM permissions WHERE employee_id = ?'
+    ).get(targetId);
+    const targetCurrentAdminLevel = targetRow ? targetRow.admin_level : 0;
+
+    if (!canModifyPermissions(granterPerm, targetCurrentAdminLevel, newAdminLevel)) {
+      return reply.code(403).send({
+        ok: false, error: '无权修改该账号权限(只能向下授权,不能改上级/同级)'
+      });
+    }
+
+    const mods = JSON.stringify(modules || {});
+    app.db.prepare(
+      `INSERT INTO permissions (employee_id, mode, level, scope, modules, admin_level, granted_by)
+       VALUES (?,?,?,?,?,?,?)
+       ON CONFLICT(employee_id) DO UPDATE SET
+         mode=excluded.mode, level=excluded.level, scope=excluded.scope,
+         modules=excluded.modules, admin_level=excluded.admin_level, granted_by=excluded.granted_by`
+    ).run(targetId, mode || 'manual', Number(level) || 3, scope || 'self', mods, newAdminLevel, req.principal.employee_id);
+
+    return reply.send({ ok: true, employee_id: targetId, granted_by: req.principal.employee_id, admin_level: newAdminLevel });
+  });
 }
 
 // 便捷函数:种测试/初始账号(哈希后写入 employees + permissions)
@@ -329,5 +441,6 @@ async function seedAccount(db, { employee_id, account, password, name = '测试'
 module.exports = {
   registerAuthRoutes, hashPassword, verifyPassword, createSession, resolveSession,
   effectivePermissions, isLocked, recordFailed, resetFailed, seedAccount,
+  hasPermission, isWithinScope, canModifyPermissions, requirePermission,
   SESSION_COOKIE, MAX_FAILED, PWD_ALGO
 };
