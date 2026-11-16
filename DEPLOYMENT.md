@@ -190,7 +190,7 @@ Invoke-RestMethod http://localhost:8791/audit/verify-all -Headers @{Cookie=$sid}
 - [ ] 设 `COOKIE_SECRET` 为强随机串(≥32 字符)
 - [ ] 修改种子账号的默认密码 `Aa@123456`
 - [ ] 限制 `:8791` 只允许 `127.0.0.1` 访问(Caddy 在前面挡着)
-- [ ] 定期备份 `server/data/warehouse.db`
+- [ ] 定期备份:`backup.js` + 夜间计划任务(见 §11)
 
 ### 7.2 可选
 
@@ -247,3 +247,42 @@ Windows 防火墙放通 8790:
 ```powershell
 New-NetFirewallRule -DisplayName "Sanitation-Platform" -Direction Inbound -LocalPort 8790 -Protocol TCP -Action Allow
 ```
+
+---
+
+## 11. 备份与恢复(P0-T05 验收项)
+
+**脚本**:`server/backup.js`(Node 实现,Windows/Linux 通用;备份前自动 WAL checkpoint + 完整性校验)
+
+```powershell
+cd server
+
+# 立即备份
+node backup.js
+# → warehouse-20261116-195358.db (220.0 KB, integrity ok),存于 server/data/backups/
+
+# 列出备份(逐份校验完整性)
+node backup.js list
+
+# 恢复(必须先停服务!)
+node backup.js restore warehouse-20261116-195358.db
+```
+
+**夜间自动备份**(Windows 计划任务,每天 02:00):
+```powershell
+schtasks /create /tn "SanitationNightlyBackup" /tr "node D:\workspace\sanitation-ai-platform\server\backup.js" /sc daily /st 02:00 /rl HIGHEST
+```
+> 路径换成实际部署路径。删除任务:`schtasks /delete /tn "SanitationNightlyBackup" /f`
+> 备份默认保留最近 20 份,更旧的自动清理。
+
+### 恢复演练(2026-11-16 实测)
+
+| 步骤 | 结果 |
+|---|---|
+| 备份(WAL checkpoint + 完整性校验) | ✓ 220 KB, integrity ok |
+| 停服 → 删除 `warehouse.db*` | ✓ 模拟磁盘故障 |
+| 重启服务 | ✓ healthz 正常但**数据全失**(登录 401)—— 注意:healthz 通 ≠ 数据还在 |
+| 停服 → `backup.js restore` → 重启 | ✓ 账号登录恢复、单据 2 条、库存终值 498/119、审计链 `verify_all=true`(2 链 18 事件)—— 与灾前完全一致 |
+| 全程耗时 | **< 2 分钟** |
+
+**结论:备份可回滚验收通过。** 建议:每月跑一次该演练;Gate 评审前必跑。
