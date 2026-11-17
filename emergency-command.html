@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>清雪应急指挥调度 · 环卫 AI 平台</title>
+  <style>
+    :root {
+      --primary: #1677ff; --primary-bg: #e6f4ff; --success: #52c41a;
+      --warning: #faad14; --danger: #ff4d4f; --purple: #722ed1;
+      --border: #d9d9d9; --text-primary: #000000e0; --text-secondary: #00000073;
+      --bg-page: #f5f5f5; --bg-white: #fff; --radius: 8px;
+      --shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI',
+                   'PingFang SC', 'Microsoft YaHei', sans-serif;
+      font-size:14px; color:var(--text-primary); background:var(--bg-page);
+      line-height:1.5714; padding-bottom:40px;
+    }
+    .header {
+      background:var(--bg-white); border-bottom:1px solid var(--border);
+      padding:16px 24px; display:flex; justify-content:space-between;
+      align-items:center; box-shadow:var(--shadow); position:sticky; top:0; z-index:10;
+    }
+    .header h1 { font-size:18px; font-weight:600; }
+    .header .user { color:var(--text-secondary); font-size:13px; margin-top:4px; }
+    .header .actions { display:flex; gap:12px; align-items:center; }
+    .btn {
+      padding:6px 14px; border:1px solid var(--border); background:var(--bg-white);
+      border-radius:var(--radius); cursor:pointer; font-size:13px; transition:all 0.2s;
+    }
+    .btn:hover { border-color:var(--primary); color:var(--primary); }
+    .btn-primary { background:var(--primary); color:#fff; border-color:var(--primary); }
+    .btn-primary:hover { background:#4096ff; color:#fff; }
+    .btn-danger { background:var(--danger); color:#fff; border-color:var(--danger); }
+    .btn-danger:hover { background:#ff7875; color:#fff; }
+    .btn-sm { padding:3px 10px; font-size:12px; }
+    .btn:disabled { opacity:0.45; cursor:not-allowed; }
+    .container { max-width:1500px; margin:24px auto; padding:0 24px; }
+
+    .filter-bar {
+      background:var(--bg-white); border-radius:var(--radius);
+      padding:16px 20px; box-shadow:var(--shadow);
+      display:flex; gap:16px; flex-wrap:wrap; align-items:flex-end; margin-bottom:20px;
+    }
+    .filter-group { display:flex; flex-direction:column; gap:6px; }
+    .filter-group label { font-size:12px; color:var(--text-secondary); font-weight:500; }
+    .filter-group input, .filter-group select {
+      padding:6px 10px; border:1px solid var(--border); border-radius:var(--radius);
+      font-size:13px; background:#fff; min-width:150px;
+    }
+    .filter-group input:focus, .filter-group select:focus { outline:none; border-color:var(--primary); }
+
+    .layout { display:grid; grid-template-columns: 380px 1fr; gap:20px; align-items:start; }
+    .table-card {
+      background:var(--bg-white); border-radius:var(--radius);
+      box-shadow:var(--shadow); overflow:hidden; margin-bottom:20px;
+    }
+    .table-card .title {
+      padding:14px 20px; border-bottom:1px solid var(--border);
+      font-weight:600; display:flex; justify-content:space-between; align-items:center;
+    }
+    .table-card .title .count { color:var(--text-secondary); font-weight:400; font-size:13px; }
+    table { width:100%; border-collapse:collapse; }
+    th, td { padding:10px 12px; text-align:left; border-bottom:1px solid #f0f0f0; font-size:13px; }
+    th { background:#fafafa; font-weight:600; font-size:12px; color:var(--text-secondary); }
+    tbody tr { cursor:pointer; }
+    tbody tr:hover { background:#fafafa; }
+    tbody tr.active { background:var(--primary-bg); }
+    tbody tr:last-child td { border-bottom:none; }
+    .empty { padding:40px; text-align:center; color:var(--text-secondary); }
+    .loading { padding:20px; text-align:center; color:var(--text-secondary); }
+    .error {
+      background:#fff2f0; border:1px solid #ffccc7; color:var(--danger);
+      padding:12px 20px; border-radius:var(--radius); margin-bottom:16px;
+    }
+    .note { font-size:12px; color:var(--text-secondary); }
+
+    .tag {
+      display:inline-block; padding:2px 8px; border-radius:4px; font-size:12px;
+      border:1px solid transparent; white-space:nowrap;
+    }
+    .tag-alert     { background:#fff7e6; color:var(--warning); border-color:#ffd591; }
+    .tag-verified  { background:#e6f4ff; color:var(--primary); border-color:#91caff; }
+    .tag-activated { background:#f9f0ff; color:var(--purple); border-color:#d3adf7; }
+    .tag-executing { background:#f6ffed; color:var(--success); border-color:#b7eb8f; }
+    .tag-resolved  { background:#f0f9eb; color:#389e0d; border-color:#c2e7b0; }
+    .tag-cancelled { background:#f5f5f5; color:var(--text-secondary); border-color:var(--border); }
+    .tag-level-I { background:#fff1f0; color:var(--danger); border-color:#ffa39e; }
+    .tag-level-II { background:#fff7e6; color:var(--warning); border-color:#ffd591; }
+    .tag-level-III { background:#e6f4ff; color:var(--primary); border-color:#91caff; }
+    .tag-src-own { background:#f0f5ff; color:#2f54eb; border-color:#adc6ff; }
+    .tag-src-rented { background:#fff0f6; color:#eb2f96; border-color:#ffadd2; }
+
+    /* 状态机 stepper */
+    .stepper { display:flex; align-items:center; gap:0; margin:8px 0 16px; flex-wrap:wrap; }
+    .step { display:flex; flex-direction:column; align-items:center; gap:4px; flex:1; min-width:64px; }
+    .step .dot {
+      width:28px; height:28px; border-radius:50%; display:flex; align-items:center;
+      justify-content:center; font-size:12px; font-weight:600;
+      background:#f0f0f0; color:var(--text-secondary); border:2px solid #f0f0f0;
+    }
+    .step.done .dot { background:var(--success); color:#fff; border-color:var(--success); }
+    .step.current .dot { background:var(--primary); color:#fff; border-color:var(--primary); box-shadow:0 0 0 4px var(--primary-bg); }
+    .step.cancelled .dot { background:var(--text-secondary); color:#fff; border-color:var(--text-secondary); }
+    .step .label { font-size:11px; color:var(--text-secondary); }
+    .step.current .label, .step.done .label { color:var(--text-primary); font-weight:500; }
+    .step-line { flex:0 0 20px; height:2px; background:#f0f0f0; margin-bottom:18px; }
+    .step-line.done { background:var(--success); }
+
+    .detail-card { background:var(--bg-white); border-radius:var(--radius); box-shadow:var(--shadow); padding:20px; margin-bottom:20px; }
+    .detail-card h3 { font-size:15px; font-weight:600; margin-bottom:12px; }
+    .kv { display:grid; grid-template-columns: 90px 1fr; gap:8px 12px; font-size:13px; }
+    .kv .k { color:var(--text-secondary); }
+    .section-title { font-size:14px; font-weight:600; margin:18px 0 10px; padding-bottom:8px; border-bottom:1px solid #f0f0f0; }
+
+    .action-bar { display:flex; gap:10px; flex-wrap:wrap; margin-top:16px; }
+    .log-list { list-style:none; }
+    .log-list li {
+      padding:8px 0; border-bottom:1px dashed #f0f0f0; font-size:13px;
+      display:flex; gap:12px; align-items:flex-start;
+    }
+    .log-list li:last-child { border-bottom:none; }
+    .log-list .log-action { font-weight:500; min-width:96px; }
+    .log-list .log-time { color:var(--text-secondary); font-size:12px; min-width:150px; }
+    .log-list .log-detail { color:var(--text-secondary); }
+
+    /* modal */
+    .modal-mask {
+      position:fixed; inset:0; background:rgba(0,0,0,0.45); display:none;
+      align-items:flex-start; justify-content:center; z-index:100; padding:60px 20px;
+    }
+    .modal-mask.show { display:flex; }
+    .modal {
+      background:var(--bg-white); border-radius:var(--radius); width:560px; max-width:100%;
+      box-shadow:0 8px 30px rgba(0,0,0,0.2); max-height:80vh; display:flex; flex-direction:column;
+    }
+    .modal .modal-title {
+      padding:14px 20px; border-bottom:1px solid var(--border); font-weight:600;
+      display:flex; justify-content:space-between; align-items:center;
+    }
+    .modal .modal-title .close { cursor:pointer; color:var(--text-secondary); font-size:18px; }
+    .modal .modal-body { padding:20px; overflow:auto; }
+    .modal .modal-foot { padding:14px 20px; border-top:1px solid var(--border); display:flex; justify-content:flex-end; gap:10px; }
+    .form-row { display:flex; flex-direction:column; gap:6px; margin-bottom:14px; }
+    .form-row label { font-size:13px; color:var(--text-secondary); }
+    .form-row input, .form-row select, .form-row textarea {
+      padding:7px 10px; border:1px solid var(--border); border-radius:var(--radius); font-size:13px; font-family:inherit;
+    }
+    .form-row input:focus, .form-row select:focus, .form-row textarea:focus { outline:none; border-color:var(--primary); }
+    .form-row textarea { min-height:64px; resize:vertical; }
+    .radio-row { display:flex; gap:16px; align-items:center; }
+    .radio-row label { display:flex; align-items:center; gap:4px; color:var(--text-primary); font-size:13px; }
+    .md-content { font-size:13px; line-height:1.7; white-space:pre-wrap; word-break:break-word; }
+    .md-content h1 { font-size:18px; margin:8px 0; }
+    .md-content h2 { font-size:15px; margin:12px 0 6px; color:var(--primary); }
+    .md-content ul { padding-left:20px; }
+    .md-content li { margin:2px 0; }
+    @media (max-width: 900px) { .layout { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div>
+      <h1>清雪应急指挥调度</h1>
+      <div class="user" id="user-info"></div>
+    </div>
+    <div class="actions">
+      <button class="btn" id="btn-refresh">刷新</button>
+      <button class="btn" id="btn-logout">退出登录</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <div id="error-bar"></div>
+
+    <div class="filter-bar">
+      <div class="filter-group">
+        <label>状态</label>
+        <select id="filter-status">
+          <option value="">全部</option>
+          <option value="alert">预警</option>
+          <option value="verified">已核实</option>
+          <option value="activated">已启动</option>
+          <option value="executing">执行中</option>
+          <option value="resolved">已结案</option>
+          <option value="cancelled">已取消</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>类别</label>
+        <select id="filter-category">
+          <option value="">全部</option>
+          <option value="snow">清雪</option>
+          <option value="flood">内涝</option>
+          <option value="fire">火灾</option>
+          <option value="accident">事故</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>&nbsp;</label>
+        <button class="btn btn-primary" id="btn-query">查询</button>
+      </div>
+      <div class="filter-group">
+        <label>&nbsp;</label>
+        <button class="btn" id="btn-reset">重置</button>
+      </div>
+      <div class="filter-group" style="margin-left:auto;">
+        <label>&nbsp;</label>
+        <button class="btn btn-primary" id="btn-new-event">新建应急事件</button>
+      </div>
+    </div>
+
+    <div class="layout">
+      <!-- 左:事件列表 -->
+      <div>
+        <div class="table-card">
+          <div class="title">应急事件 <span class="count" id="event-count">—</span></div>
+          <div id="event-list"></div>
+        </div>
+      </div>
+
+      <!-- 右:事件详情 / 指挥面板 -->
+      <div id="detail-panel">
+        <div class="table-card">
+          <div class="title">指挥调度面板 <span class="count" id="detail-count">选择左侧事件查看详情</span></div>
+          <div id="detail-body" class="loading">加载中…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 新建事件 modal -->
+  <div class="modal-mask" id="modal-new">
+    <div class="modal">
+      <div class="modal-title"><span>新建应急事件</span><span class="close" data-close="modal-new">×</span></div>
+      <div class="modal-body">
+        <div class="form-row">
+          <label>选择预案</label>
+          <select id="new-plan"></select>
+        </div>
+        <div class="form-row">
+          <label>事件标题</label>
+          <input type="text" id="new-title" placeholder="如 11·17 暴雪清雪" />
+        </div>
+        <div class="form-row">
+          <label>应急等级</label>
+          <select id="new-level">
+            <option value="III">III 级(小)</option>
+            <option value="II">II 级(中)</option>
+            <option value="I">I 级(大)</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>态势说明(JSON,可选)</label>
+          <textarea id="new-situation" placeholder='{"roads_affected":["中山路"],"snow_depth":15}'></textarea>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" data-close="modal-new">取消</button>
+        <button class="btn btn-primary" id="btn-create">创建</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 调度 modal -->
+  <div class="modal-mask" id="modal-dispatch">
+    <div class="modal">
+      <div class="modal-title"><span>资源调度</span><span class="close" data-close="modal-dispatch">×</span></div>
+      <div class="modal-body">
+        <div class="form-row">
+          <label>资源类型</label>
+          <select id="d-type">
+            <option value="vehicle">车辆</option>
+            <option value="material">物资</option>
+            <option value="personnel">人员</option>
+          </select>
+        </div>
+        <div class="form-row" id="d-source-row">
+          <label>资源来源</label>
+          <div class="radio-row">
+            <label><input type="radio" name="d-source" value="own" checked /> 自有</label>
+            <label><input type="radio" name="d-source" value="rented" /> 外租</label>
+          </div>
+        </div>
+        <div class="form-row" id="d-resource-row">
+          <label id="d-resource-label">选择资源</label>
+          <select id="d-resource"></select>
+        </div>
+        <div class="form-row">
+          <label>责任岗位/角色(可选)</label>
+          <input type="text" id="d-role" placeholder="如 铲雪、司机" />
+        </div>
+        <div class="form-row">
+          <label>责任路段/区域(可选)</label>
+          <input type="text" id="d-area" placeholder="如 中山路" />
+        </div>
+        <div class="form-row">
+          <label>备注(可选)</label>
+          <input type="text" id="d-note" />
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" data-close="modal-dispatch">取消</button>
+        <button class="btn btn-primary" id="btn-dispatch">确认调度</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 进度记录 modal -->
+  <div class="modal-mask" id="modal-progress">
+    <div class="modal">
+      <div class="modal-title"><span>进度记录</span><span class="close" data-close="modal-progress">×</span></div>
+      <div class="modal-body">
+        <div class="form-row">
+          <label>动作</label>
+          <input type="text" id="p-action" placeholder="如 路段清理完成" />
+        </div>
+        <div class="form-row">
+          <label>详情</label>
+          <textarea id="p-detail" placeholder="如 中山路已清理完毕"></textarea>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" data-close="modal-progress">取消</button>
+        <button class="btn btn-primary" id="btn-progress">记录</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 结案 modal -->
+  <div class="modal-mask" id="modal-resolve">
+    <div class="modal">
+      <div class="modal-title"><span>结案复盘</span><span class="close" data-close="modal-resolve">×</span></div>
+      <div class="modal-body">
+        <div class="form-row">
+          <label>已清理路段(逗号分隔)</label>
+          <input type="text" id="r-roads" placeholder="如 中山路,解放路" />
+        </div>
+        <div class="form-row">
+          <label>复盘备注</label>
+          <textarea id="r-note" placeholder="结案说明"></textarea>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" data-close="modal-resolve">取消</button>
+        <button class="btn btn-primary" id="btn-resolve">确认结案</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 战报 modal -->
+  <div class="modal-mask" id="modal-report">
+    <div class="modal">
+      <div class="modal-title"><span>应急战报</span><span class="close" data-close="modal-report">×</span></div>
+      <div class="modal-body">
+        <div id="report-body" class="md-content">加载中…</div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" data-close="modal-report">关闭</button>
+        <button class="btn" id="btn-copy-report">复制战报</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function(){
+    'use strict';
+    var $ = function(id){ return document.getElementById(id); };
+    var state = { user: null, plans: [], resources: null, currentEvent: null, currentReport: '' };
+
+    // ---- 五阶段状态机定义 ----
+    var STEPS = [
+      { key:'alert', label:'预警' },
+      { key:'verified', label:'核实' },
+      { key:'activated', label:'启动' },
+      { key:'executing', label:'执行' },
+      { key:'resolved', label:'结案' }
+    ];
+    var TRANSITIONS = {
+      alert:     ['verified', 'cancelled'],
+      verified:  ['activated', 'cancelled'],
+      activated: ['executing', 'cancelled'],
+      executing: ['resolved'],
+      resolved:  [],
+      cancelled: []
+    };
+    var STATUS_LABEL = { alert:'预警', verified:'已核实', activated:'已启动', executing:'执行中', resolved:'已结案', cancelled:'已取消' };
+    var LEVEL_LABEL = { I:'I 级', II:'II 级', III:'III 级' };
+
+    // ---- 基础工具 ----
+    function fetchJson(url, opts) {
+      opts = opts || {};
+      opts.credentials = 'same-origin';
+      return fetch(url, opts).then(function(r){
+        return r.json().then(function(b){ return { ok: r.ok, status: r.status, body: b }; });
+      });
+    }
+    function showError(msg){ $('error-bar').innerHTML = '<div class="error">' + escapeHtml(msg) + '</div>'; }
+    function clearError(){ $('error-bar').innerHTML = ''; }
+    function escapeHtml(s){
+      return String(s==null?'':s).replace(/[&<>"]/g, function(c){
+        return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];
+      });
+    }
+    function fmtTime(s){ return s ? String(s).replace('T',' ').slice(0,19) : '-'; }
+    function statusTag(st){ return '<span class="tag tag-'+st+'">'+STATUS_LABEL[st]+'</span>'; }
+    function levelTag(lv){ return '<span class="tag tag-level-'+lv+'">'+LEVEL_LABEL[lv]+'</span>'; }
+
+    function openModal(id){ $(id).classList.add('show'); }
+    function closeModal(id){ $(id).classList.remove('show'); }
+
+    // ---- 加载预案 + 资源 ----
+    function loadMeta() {
+      return Promise.all([
+        fetchJson('/emergency/plans'),
+        fetchJson('/emergency/resources')
+      ]).then(function(rs){
+        if (!rs[0].ok) throw new Error(rs[0].body.error || '加载预案失败');
+        state.plans = rs[0].body.items || [];
+        var sel = $('new-plan');
+        sel.innerHTML = state.plans.map(function(p){
+          return '<option value="'+escapeHtml(p.id)+'">'+escapeHtml(p.name)+' ('+escapeHtml(p.category)+')</option>';
+        }).join('');
+        if (rs[1].ok) state.resources = rs[1].body.resources;
+        else state.resources = { own:[], rented:[], personnel:[] };
+      }).catch(function(e){ showError(e.message); });
+    }
+
+    // ---- 加载事件列表 ----
+    function loadEvents() {
+      clearError();
+      var status = $('filter-status').value;
+      var category = $('filter-category').value;
+      var url = '/emergency/events';
+      var qs = [];
+      if (status) qs.push('status=' + encodeURIComponent(status));
+      if (category) qs.push('category=' + encodeURIComponent(category));
+      if (qs.length) url += '?' + qs.join('&');
+      $('event-list').innerHTML = '<div class="loading">加载中…</div>';
+      fetchJson(url).then(function(res){
+        if (!res.ok) throw new Error(res.body.error || '加载事件失败');
+        var items = res.body.items || [];
+        $('event-count').textContent = items.length + ' 个';
+        renderEventList(items);
+      }).catch(function(e){
+        showError(e.message);
+        $('event-list').innerHTML = '<div class="empty">加载失败</div>';
+      });
+    }
+
+    function renderEventList(items) {
+      if (!items.length) { $('event-list').innerHTML = '<div class="empty">暂无应急事件</div>'; return; }
+      $('event-list').innerHTML = '<table><thead><tr><th>标题</th><th>类别</th><th>状态</th><th>时间</th></tr></thead><tbody>' +
+        items.map(function(e){
+          var active = state.currentEvent && state.currentEvent.id === e.id ? ' class="active"' : '';
+          return '<tr'+active+' data-id="'+e.id+'">' +
+            '<td>'+escapeHtml(e.title)+'<div class="note">'+escapeHtml(e.level)+'</div></td>' +
+            '<td>'+escapeHtml(e.category)+'</td>' +
+            '<td>'+statusTag(e.status)+'</td>' +
+            '<td class="note">'+fmtTime(e.start_time)+'</td></tr>';
+        }).join('') + '</tbody></table>';
+      Array.prototype.forEach.call($('event-list').querySelectorAll('tr[data-id]'), function(tr){
+        tr.addEventListener('click', function(){ selectEvent(Number(tr.getAttribute('data-id'))); });
+      });
+    }
+
+    // ---- 选择事件 → 加载详情 ----
+    function selectEvent(id) {
+      state.currentEvent = null;
+      $('detail-count').textContent = '加载中…';
+      $('detail-body').innerHTML = '<div class="loading">加载中…</div>';
+      fetchJson('/emergency/events/' + id).then(function(res){
+        if (!res.ok) throw new Error(res.body.error || '加载详情失败');
+        state.currentEvent = res.body.detail;
+        renderDetail(res.body.detail);
+        loadEvents(); // 刷新列表高亮
+      }).catch(function(e){
+        showError(e.message);
+        $('detail-body').innerHTML = '<div class="empty">加载失败</div>';
+      });
+    }
+
+    function renderDetail(d) {
+      var ev = d.event;
+      $('detail-count').textContent = ev.id + ' · ' + ev.title;
+      var html = '';
+
+      // 状态机 stepper
+      html += '<div class="stepper">';
+      var idx = STEPS.findIndex(function(s){ return s.key === ev.status; });
+      var cancelled = ev.status === 'cancelled';
+      STEPS.forEach(function(s, i){
+        var cls = '';
+        if (cancelled) cls = 'cancelled';
+        else if (i < idx) cls = 'done';
+        else if (i === idx) cls = 'current';
+        html += '<div class="step '+cls+'"><div class="dot">'+(i+1)+'</div><div class="label">'+s.label+'</div></div>';
+        if (i < STEPS.length-1) {
+          html += '<div class="step-line'+(!cancelled && i < idx ? ' done' : '')+'"></div>';
+        }
+      });
+      if (cancelled) {
+        html += '<div class="step cancelled"><div class="dot">×</div><div class="label">已取消</div></div>';
+      }
+      html += '</div>';
+
+      // 基本信息
+      html += '<div class="kv">' +
+        '<div class="k">标题</div><div>'+escapeHtml(ev.title)+'</div>' +
+        '<div class="k">类别</div><div>'+escapeHtml(ev.category)+'</div>' +
+        '<div class="k">等级</div><div>'+levelTag(ev.level)+'</div>' +
+        '<div class="k">当前状态</div><div>'+statusTag(ev.status)+'</div>' +
+        '<div class="k">启动时间</div><div>'+fmtTime(ev.start_time)+'</div>' +
+        '<div class="k">结束时间</div><div>'+fmtTime(ev.end_time)+'</div>' +
+        '</div>';
+
+      // 态势
+      var sit = parseJson(ev.situation, {});
+      if (sit && (sit.roads_affected || sit.snow_depth || sit.note)) {
+        html += '<div class="section-title">实时态势</div><div class="kv">';
+        if (sit.roads_affected && sit.roads_affected.length) {
+          html += '<div class="k">受影响路段</div><div>'+escapeHtml(sit.roads_affected.join('、'))+'</div>';
+        }
+        if (sit.snow_depth != null) { html += '<div class="k">降雪量</div><div>'+escapeHtml(sit.snow_depth)+' mm</div>'; }
+        if (sit.note) { html += '<div class="k">说明</div><div>'+escapeHtml(sit.note)+'</div>'; }
+        html += '</div>';
+      }
+
+      // 行动按钮
+      html += '<div class="action-bar">';
+      if (ev.status !== 'resolved' && ev.status !== 'cancelled') {
+        var next = TRANSITIONS[ev.status] || [];
+        next.forEach(function(to){
+          var label = STEPS.find(function(s){ return s.key === to; });
+          var txt = to === 'cancelled' ? '取消事件' : ((label ? label.label : to) + ' →');
+          var cls = to === 'cancelled' ? 'btn-danger' : 'btn-primary';
+          html += '<button class="btn '+cls+' btn-sm" data-act="transition" data-to="'+to+'">'+txt+'</button>';
+        });
+        html += '<button class="btn btn-primary btn-sm" data-act="dispatch">资源调度</button>';
+        html += '<button class="btn btn-sm" data-act="progress">进度记录</button>';
+        if (ev.status === 'executing') {
+          html += '<button class="btn btn-primary btn-sm" data-act="resolve">结案复盘</button>';
+        }
+        html += '<button class="btn btn-sm" data-act="report">生成战报</button>';
+      } else {
+        html += '<button class="btn btn-sm" data-act="report">查看战报</button>';
+      }
+      html += '</div>';
+
+      // 调度列表
+      html += '<div class="section-title">调度任务('+ (d.dispatches?d.dispatches.length:0) +')</div>';
+      if (d.dispatches && d.dispatches.length) {
+        html += '<table><thead><tr><th>资源</th><th>类型</th><th>来源</th><th>岗位</th><th>区域</th><th>状态</th></tr></thead><tbody>' +
+          d.dispatches.map(function(x){
+            var src = x.source === 'rented' ? '<span class="tag tag-src-rented">外租</span>' : '<span class="tag tag-src-own">自有</span>';
+            return '<tr><td>'+escapeHtml(x.resource_name)+'</td>' +
+              '<td>'+escapeHtml(x.resource_type)+'</td>' +
+              '<td>'+src+'</td>' +
+              '<td>'+escapeHtml(x.assigned_role||'-')+'</td>' +
+              '<td>'+escapeHtml(x.area||'-')+'</td>' +
+              '<td>'+escapeHtml(x.status)+'</td></tr>';
+          }).join('') + '</tbody></table>';
+      } else {
+        html += '<div class="empty">暂无调度</div>';
+      }
+
+      // 进度日志
+      html += '<div class="section-title">进度日志('+ (d.logs?d.logs.length:0) +')</div>';
+      if (d.logs && d.logs.length) {
+        html += '<ul class="log-list">' + d.logs.slice().reverse().map(function(l){
+          return '<li><div class="log-time">'+fmtTime(l.created_at)+'</div>' +
+            '<div class="log-action">'+escapeHtml(l.action)+'</div>' +
+            '<div class="log-detail">'+escapeHtml(l.detail||'')+'</div></li>';
+        }).join('') + '</ul>';
+      } else {
+        html += '<div class="empty">暂无进度记录</div>';
+      }
+
+      $('detail-body').innerHTML = html;
+      bindDetailActions(d);
+    }
+
+    function parseJson(text, fallback){
+      if (text == null || text === '') return fallback;
+      try { return JSON.parse(text); } catch { return fallback; }
+    }
+
+    function bindDetailActions(d) {
+      Array.prototype.forEach.call($('detail-body').querySelectorAll('button[data-act]'), function(btn){
+        btn.addEventListener('click', function(){
+          var act = btn.getAttribute('data-act');
+          var ev = state.currentEvent.event;
+          if (act === 'transition') {
+            transition(Number(ev.id), btn.getAttribute('data-to'));
+          } else if (act === 'dispatch') {
+            openDispatchModal(Number(ev.id));
+          } else if (act === 'progress') {
+            openProgressModal(Number(ev.id));
+          } else if (act === 'resolve') {
+            openResolveModal(Number(ev.id));
+          } else if (act === 'report') {
+            ensureReport(Number(ev.id));
+          }
+        });
+      });
+    }
+
+    // ---- 状态转移 ----
+    function transition(id, to) {
+      var body = { to: to, note: '' };
+      var confirmMsg = to === 'cancelled' ? '确认取消该应急事件?' : '确认推进到「'+(STATUS_LABEL[to]||to)+'」?';
+      if (!confirm(confirmMsg)) return;
+      fetchJson('/emergency/events/' + id + '/transition', {
+        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+      }).then(function(res){
+        if (!res.ok) throw new Error(res.body.error || '转移失败');
+        toast('状态已更新');
+        selectEvent(id);
+      }).catch(function(e){ showError(e.message); });
+    }
+
+    // ---- 新建事件 ----
+    $('btn-new-event').addEventListener('click', function(){
+      if (!state.plans.length) { showError('无可用预案,请先刷新'); return; }
+      $('new-title').value = '';
+      $('new-level').value = 'II';
+      $('new-situation').value = '';
+      openModal('modal-new');
+    });
+    $('btn-create').addEventListener('click', function(){
+      var payload = {
+        plan_id: $('new-plan').value,
+        title: $('new-title').value.trim(),
+        level: $('new-level').value,
+        category: (state.plans.find(function(p){ return p.id === $('new-plan').value }) || {}).category
+      };
+      if (!payload.title) { showError('请填写事件标题'); return; }
+      var sit = $('new-situation').value.trim();
+      if (sit) {
+        try { payload.situation = JSON.parse(sit); }
+        catch(e){ showError('态势 JSON 格式错误'); return; }
+      }
+      fetchJson('/emergency/events', {
+        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
+      }).then(function(res){
+        if (!res.ok) throw new Error(res.body.error || '创建失败');
+        closeModal('modal-new');
+        toast('应急事件已创建');
+        loadEvents();
+        selectEvent(res.body.event.id);
+      }).catch(function(e){ showError(e.message); });
+    });
+
+    // ---- 调度 ----
+    var dispatchEventId = null;
+    function openDispatchModal(id) {
+      dispatchEventId = id;
+      if (!state.resources) { showError('资源未加载,请刷新'); return; }
+      $('d-type').value = 'vehicle';
+      $('d-role').value = '';
+      $('d-area').value = '';
+      $('d-note').value = '';
+      document.querySelector('input[name="d-source"][value="own"]').checked = true;
+      refreshDispatchResource();
+      openModal('modal-dispatch');
+    }
+    function currentSource() {
+      var el = document.querySelector('input[name="d-source"]:checked');
+      return el ? el.value : 'own';
+    }
+    function refreshDispatchResource() {
+      var type = $('d-type').value;
+      var source = currentSource();
+      var sel = $('d-resource');
+      var label = $('d-resource-label');
+      if (type === 'personnel') {
+        label.textContent = '选择人员';
+        sel.innerHTML = (state.resources.personnel || []).map(function(p){
+          return '<option value="'+p.employee_id+'">'+escapeHtml(p.name)+'('+escapeHtml(p.position)+')</option>';
+        }).join('');
+      } else if (type === 'material') {
+        label.textContent = source === 'own' ? '选择自有物资' : '选择外租设备';
+        sel.innerHTML = listOptions(source === 'own' ? state.resources.own : state.resources.rented, source);
+      } else {
+        label.textContent = source === 'own' ? '选择自有车辆' : '选择外租车辆';
+        sel.innerHTML = listOptions(source === 'own' ? state.resources.own : state.resources.rented, source);
+      }
+      $('d-source-row').style.display = (type === 'personnel') ? 'none' : '';
+    }
+    function listOptions(arr, source) {
+      if (source === 'own') {
+        return (arr || []).map(function(r){ return '<option value="'+escapeHtml(r.id)+'">'+escapeHtml(r.name)+'</option>'; }).join('');
+      }
+      return (arr || []).map(function(r){ return '<option value="'+r.rental_item_id+'">'+escapeHtml(r.name+(r.serial_no?('('+r.serial_no+')'):''))+'</option>'; }).join('');
+    }
+    $('d-type').addEventListener('change', refreshDispatchResource);
+    Array.prototype.forEach.call(document.querySelectorAll('input[name="d-source"]'), function(r){
+      r.addEventListener('change', refreshDispatchResource);
+    });
+    $('btn-dispatch').addEventListener('click', function(){
+      var type = $('d-type').value;
+      var source = currentSource();
+      var rid = $('d-resource').value;
+      if (!rid) { showError('请选择资源'); return; }
+      var payload = {
+        resource_type: type,
+        source: type === 'personnel' ? 'own' : source,
+        assigned_role: $('d-role').value.trim() || null,
+        area: $('d-area').value.trim() || null,
+        note: $('d-note').value.trim() || null
+      };
+      if (type === 'personnel') {
+        payload.employee_id = Number(rid);
+      } else if (source === 'own') {
+        payload.inventory_item_id = rid;
+      } else {
+        payload.rental_item_id = Number(rid);
+      }
+      fetchJson('/emergency/events/' + dispatchEventId + '/dispatch', {
+        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)
+      }).then(function(res){
+        if (!res.ok) throw new Error(res.body.error || '调度失败');
+        closeModal('modal-dispatch');
+        toast('资源已调度');
+        selectEvent(dispatchEventId);
+      }).catch(function(e){ showError(e.message); });
+    });
+
+    // ---- 进度 ----
+    var progressEventId = null;
+    function openProgressModal(id) {
+      progressEventId = id;
+      $('p-action').value = '';
+      $('p-detail').value = '';
+      openModal('modal-progress');
+    }
+    $('btn-progress').addEventListener('click', function(){
+      var action = $('p-action').value.trim();
+      if (!action) { showError('请填写动作'); return; }
+      fetchJson('/emergency/events/' + progressEventId + '/progress', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ action: action, detail: $('p-detail').value.trim() || '' })
+      }).then(function(res){
+        if (!res.ok) throw new Error(res.body.error || '记录失败');
+        closeModal('modal-progress');
+        toast('进度已记录');
+        selectEvent(progressEventId);
+      }).catch(function(e){ showError(e.message); });
+    });
+
+    // ---- 结案 ----
+    var resolveEventId = null;
+    function openResolveModal(id) {
+      resolveEventId = id;
+      $('r-roads').value = '';
+      $('r-note').value = '';
+      openModal('modal-resolve');
+    }
+    $('btn-resolve').addEventListener('click', function(){
+      var roads = $('r-roads').value.trim();
+      var summary = { note: $('r-note').value.trim() || '' };
+      if (roads) summary.roads_cleared = roads.split(/[,，]/).map(function(s){ return s.trim(); }).filter(Boolean);
+      fetchJson('/emergency/events/' + resolveEventId + '/resolve', {
+        method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ summary: summary })
+      }).then(function(res){
+        if (!res.ok) throw new Error(res.body.error || '结案失败');
+        closeModal('modal-resolve');
+        toast('事件已结案');
+        selectEvent(resolveEventId);
+      }).catch(function(e){ showError(e.message); });
+    });
+
+    // ---- 战报 ----
+    var reportEventId = null;
+    function ensureReport(id) {
+      reportEventId = id;
+      // 优先直接看已有战报
+      fetchJson('/emergency/events/' + id + '/battle-report').then(function(res){
+        if (res.ok) { renderReport(res.body.report.content); openModal('modal-report'); return; }
+        // 无战报则生成
+        return fetchJson('/emergency/events/' + id + '/battle-report', { method:'POST' });
+      }).then(function(res){
+        if (!res.ok) throw new Error(res.body.error || '生成战报失败');
+        renderReport(res.body.report.content);
+        openModal('modal-report');
+      }).catch(function(e){ showError(e.message); });
+    }
+    function renderReport(md) {
+      state.currentReport = md;
+      $('report-body').innerHTML = renderMarkdown(md);
+    }
+    function renderMarkdown(md) {
+      var lines = String(md).split('\n');
+      var html = '';
+      var inList = false;
+      function closeList(){ if (inList) { html += '</ul>'; inList = false; } }
+      for (var i=0;i<lines.length;i++){
+        var line = lines[i];
+        if (line.indexOf('# ') === 0) { closeList(); html += '<h1>'+escapeHtml(line.slice(2))+'</h1>'; continue; }
+        if (line.indexOf('## ') === 0) { closeList(); html += '<h2>'+escapeHtml(line.slice(3))+'</h2>'; continue; }
+        if (line.indexOf('- ') === 0) {
+          if (!inList) { html += '<ul>'; inList = true; }
+          html += '<li>'+escapeHtml(line.slice(2))+'</li>';
+          continue;
+        }
+        closeList();
+        html += '<div>'+escapeHtml(line)+'</div>';
+      }
+      closeList();
+      return html;
+    }
+    $('btn-copy-report').addEventListener('click', function(){
+      var text = state.currentReport;
+      if (!text) return;
+      var ta = document.createElement('textarea');
+      ta.value = text; document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); toast('战报已复制'); } catch(e){ showError('复制失败'); }
+      document.body.removeChild(ta);
+    });
+
+    // ---- toast ----
+    var toastTimer = null;
+    function toast(msg) {
+      var old = document.getElementById('toast');
+      if (old) old.remove();
+      var div = document.createElement('div');
+      div.id = 'toast';
+      div.textContent = msg;
+      div.style.cssText = 'position:fixed;bottom:32px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:8px 20px;border-radius:6px;font-size:13px;z-index:200;box-shadow:0 4px 12px rgba(0,0,0,0.2);';
+      document.body.appendChild(div);
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(function(){ var t = document.getElementById('toast'); if (t) t.remove(); }, 1800);
+    }
+
+    // ---- modal 关闭 ----
+    Array.prototype.forEach.call(document.querySelectorAll('[data-close]'), function(el){
+      el.addEventListener('click', function(){ closeModal(el.getAttribute('data-close')); });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.modal-mask'), function(mask){
+      mask.addEventListener('click', function(e){ if (e.target === mask) mask.classList.remove('show'); });
+    });
+
+    // ---- 事件 ----
+    $('btn-query').addEventListener('click', loadEvents);
+    $('btn-reset').addEventListener('click', function(){
+      $('filter-status').value = ''; $('filter-category').value = ''; loadEvents();
+    });
+    $('btn-refresh').addEventListener('click', function(){ loadMeta().then(loadEvents); });
+    $('btn-logout').addEventListener('click', function(){
+      fetch('/auth/logout', { method:'POST', credentials:'same-origin' })
+        .then(function(){ window.location.href = 'index.html'; });
+    });
+
+    // ---- 启动 ----
+    fetchJson('/auth/me').then(function(res){
+      if (!res.ok) { window.location.href = 'index.html'; return; }
+      state.user = res.body.user || res.body;
+      $('user-info').textContent = (state.user.name || '') + ' (' + (state.user.account || '') + ')';
+      loadMeta().then(loadEvents);
+    }).catch(function(){ window.location.href = 'index.html'; });
+  })();
+  </script>
+</body>
+</html>

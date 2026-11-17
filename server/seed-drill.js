@@ -35,6 +35,12 @@ async function main() {
     employee_id: 9004, account: 'DRILL-WORKER', password: PWD, name: '演练-一线员工',
     position: '保洁员', department: '一线作业', permissions: null
   });
+  await seedAccount(db, {
+    employee_id: 9005, account: 'DRILL-COMMANDER', password: PWD, name: '演练-应急指挥员',
+    position: '应急指挥员', department: '应急指挥中心',
+    permissions: { mode: 'manual', level: 4, scope: 'group',
+      modules: { emergency: ['view', 'edit', 'dispatch', 'resolve'] }, admin_level: 1 }
+  });
 
   // 打印库存种子(便于演练前核对)
   const items = db.prepare('SELECT id, name, stock, min_stock FROM inventory_item ORDER BY id').all();
@@ -47,6 +53,7 @@ async function main() {
   console.log('  DRILL-APPROVER 演练-审批人   (审批)');
   console.log('  DRILL-LEADER   演练-班组长   (移动签收)');
   console.log('  DRILL-WORKER   演练-一线员工 (备用接收人)');
+  console.log('  DRILL-COMMANDER 演练-应急指挥员 (清雪应急指挥调度)');
   console.log('\n[seed] 完成。');
 
   try { db.close(); } catch {}
