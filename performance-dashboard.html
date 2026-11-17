@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>绩效看板 · 环卫 AI 平台</title>
+  <style>
+    :root {
+      --primary: #1677ff; --primary-bg: #e6f4ff; --success: #52c41a;
+      --warning: #faad14; --danger: #ff4d4f; --border: #d9d9d9;
+      --text-primary: #000000e0; --text-secondary: #00000073;
+      --bg-page: #f5f5f5; --bg-white: #fff; --radius: 8px;
+      --shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI',
+                   'PingFang SC', 'Microsoft YaHei', sans-serif;
+      font-size:14px; color:var(--text-primary); background:var(--bg-page);
+      line-height:1.5714; padding-bottom:40px;
+    }
+    .header {
+      background:var(--bg-white); border-bottom:1px solid var(--border);
+      padding:16px 24px; display:flex; justify-content:space-between;
+      align-items:center; box-shadow:var(--shadow); position:sticky; top:0; z-index:10;
+    }
+    .header h1 { font-size:18px; font-weight:600; }
+    .header .user { color:var(--text-secondary); font-size:13px; margin-top:4px; }
+    .header .actions { display:flex; gap:12px; align-items:center; }
+    .btn {
+      padding:6px 14px; border:1px solid var(--border); background:var(--bg-white);
+      border-radius:var(--radius); cursor:pointer; font-size:13px; transition:all 0.2s;
+    }
+    .btn:hover { border-color:var(--primary); color:var(--primary); }
+    .btn-primary { background:var(--primary); color:#fff; border-color:var(--primary); }
+    .btn-primary:hover { background:#4096ff; color:#fff; }
+    .container { max-width:1400px; margin:24px auto; padding:0 24px; }
+
+    .filter-bar {
+      background:var(--bg-white); border-radius:var(--radius);
+      padding:16px 20px; box-shadow:var(--shadow);
+      display:flex; gap:16px; flex-wrap:wrap; align-items:flex-end;
+      margin-bottom:20px;
+    }
+    .filter-group { display:flex; flex-direction:column; gap:6px; }
+    .filter-group label { font-size:12px; color:var(--text-secondary); font-weight:500; }
+    .filter-group input {
+      padding:6px 10px; border:1px solid var(--border); border-radius:var(--radius);
+      font-size:13px; background:#fff; min-width:160px;
+    }
+    .filter-group input:focus { outline:none; border-color:var(--primary); }
+
+    .summary-grid {
+      display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr));
+      gap:16px; margin-bottom:20px;
+    }
+    .summary-card {
+      background:var(--bg-white); border-radius:var(--radius);
+      padding:16px 20px; box-shadow:var(--shadow);
+    }
+    .summary-card .label { font-size:12px; color:var(--text-secondary); }
+    .summary-card .value {
+      font-size:24px; font-weight:600; margin-top:4px; color:var(--primary);
+    }
+    .summary-card .value.s { color:#722ed1; }
+    .summary-card .value.a { color:var(--success); }
+    .summary-card .value.b { color:var(--primary); }
+    .summary-card .value.c { color:var(--warning); }
+    .summary-card .value.d { color:var(--danger); }
+
+    .table-card {
+      background:var(--bg-white); border-radius:var(--radius);
+      box-shadow:var(--shadow); overflow:hidden; margin-bottom:20px;
+    }
+    .table-card .title {
+      padding:14px 20px; border-bottom:1px solid var(--border);
+      font-weight:600; display:flex; justify-content:space-between; align-items:center;
+    }
+    .table-card .title .count { color:var(--text-secondary); font-weight:400; font-size:13px; }
+    table { width:100%; border-collapse:collapse; }
+    th, td {
+      padding:10px 16px; text-align:left; border-bottom:1px solid #f0f0f0; font-size:13px;
+    }
+    th {
+      background:#fafafa; font-weight:600; font-size:12px;
+      color:var(--text-secondary); text-transform:uppercase;
+    }
+    tbody tr:hover { background:#fafafa; }
+    tbody tr:last-child td { border-bottom:none; }
+    td.num, th.num { text-align:right; }
+    .empty { padding:40px; text-align:center; color:var(--text-secondary); }
+    .loading { padding:20px; text-align:center; color:var(--text-secondary); }
+    .error {
+      background:#fff2f0; border:1px solid #ffccc7; color:var(--danger);
+      padding:12px 20px; border-radius:var(--radius); margin-bottom:16px;
+    }
+    .note { font-size:12px; color:var(--text-secondary); margin-bottom:12px; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div>
+      <h1>绩效看板</h1>
+      <div class="user" id="user-info"></div>
+    </div>
+    <div class="actions">
+      <button class="btn" id="btn-refresh">刷新</button>
+      <button class="btn" id="btn-logout">退出登录</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <div id="error-bar"></div>
+
+    <div class="filter-bar">
+      <div class="filter-group">
+        <label>考核周期(YYYY-MM)</label>
+        <input type="text" id="filter-period" placeholder="如 2026-10,留空为全部" />
+      </div>
+      <button class="btn btn-primary" id="btn-query">查询</button>
+      <button class="btn" id="btn-reset">重置</button>
+    </div>
+    <div class="note" id="period-note">当前:全部周期</div>
+
+    <div class="summary-grid" id="summary-grid"></div>
+
+    <div class="table-card">
+      <div class="title">
+        <span>按部门聚合</span>
+        <span class="count" id="dept-count">—</span>
+      </div>
+      <div id="dept-body"></div>
+    </div>
+
+    <div class="table-card">
+      <div class="title">
+        <span>按岗位聚合</span>
+        <span class="count" id="pos-count">—</span>
+      </div>
+      <div id="pos-body"></div>
+    </div>
+  </div>
+
+  <script>
+  (function(){
+    'use strict';
+    var $ = function(id){ return document.getElementById(id); };
+    var state = { user: null };
+
+    function fetchJson(url, opts) {
+      opts = opts || {};
+      opts.credentials = 'same-origin';
+      return fetch(url, opts).then(function(r){
+        return r.json().then(function(b){ return { ok: r.ok, status: r.status, body: b }; });
+      });
+    }
+    function showError(msg){ $('error-bar').innerHTML = '<div class="error">' + escapeHtml(msg) + '</div>'; }
+    function clearError(){ $('error-bar').innerHTML = ''; }
+    function escapeHtml(s){
+      return String(s==null?'':s).replace(/[&<>"]/g, function(c){
+        return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];
+      });
+    }
+    function fmtScore(v){ return (v==null) ? '-' : (Math.round(v*10)/10).toFixed(1); }
+
+    function gradeClass(g){
+      var m = { S:'s', A:'a', B:'b', C:'c', D:'d' };
+      return m[g] || '';
+    }
+
+    // ---- 加载看板 ----
+    function loadDashboard() {
+      clearError();
+      var period = $('filter-period').value.trim();
+      var url = '/performance/dashboard';
+      if (period) url += '?period=' + encodeURIComponent(period);
+      $('summary-grid').innerHTML = '<div class="loading">加载中…</div>';
+      $('dept-body').innerHTML = '<div class="loading">加载中…</div>';
+      $('pos-body').innerHTML = '<div class="loading">加载中…</div>';
+
+      fetchJson(url).then(function(res){
+        if (!res.ok) throw new Error(res.body.error || '加载看板失败');
+        render(res.body);
+      }).catch(function(e){
+        showError(e.message);
+        $('summary-grid').innerHTML = '';
+        $('dept-body').innerHTML = '<div class="empty">加载失败</div>';
+        $('pos-body').innerHTML = '<div class="empty">加载失败</div>';
+      });
+    }
+
+    function render(d) {
+      $('period-note').textContent = '当前:' + (d.period || '全部周期') +
+        ' · 共 ' + d.total + ' 条记录' + (d.avg_score!=null ? ' · 平均分 ' + fmtScore(d.avg_score) : '');
+
+      // 汇总卡:总人数 + 平均分 + 五级分布
+      var cards = [
+        { label:'考核总人数', value:d.total, cls:'' },
+        { label:'平均分', value: fmtScore(d.avg_score), cls:'' },
+        { label:'S 级', value:(d.grade_distribution.S||0), cls:'s' },
+        { label:'A 级', value:(d.grade_distribution.A||0), cls:'a' },
+        { label:'B 级', value:(d.grade_distribution.B||0), cls:'b' },
+        { label:'C 级', value:(d.grade_distribution.C||0), cls:'c' },
+        { label:'D 级', value:(d.grade_distribution.D||0), cls:'d' }
+      ];
+      $('summary-grid').innerHTML = cards.map(function(c){
+        return '<div class="summary-card"><div class="label">' + c.label + '</div>' +
+               '<div class="value ' + c.cls + '">' + c.value + '</div></div>';
+      }).join('');
+
+      // 状态分布(次行展示在说明中)
+      var sd = d.status_distribution || {};
+      $('period-note').textContent += ' · 状态:草稿 ' + (sd.draft||0) +
+        '/ 已确认 ' + (sd.confirmed||0) + '/ 申诉中 ' + (sd.appealed||0);
+
+      // 按部门
+      var depts = d.by_department || [];
+      $('dept-count').textContent = depts.length ? depts.length + ' 个部门' : '—';
+      $('dept-body').innerHTML = depts.length ? (
+        '<table><thead><tr><th>部门</th><th class="num">人数</th><th class="num">平均分</th></tr></thead><tbody>' +
+        depts.map(function(r){
+          return '<tr><td>' + escapeHtml(r.department || '-') + '</td>' +
+                 '<td class="num">' + r.n + '</td>' +
+                 '<td class="num">' + fmtScore(r.avg_score) + '</td></tr>';
+        }).join('') + '</tbody></table>'
+      ) : '<div class="empty">暂无数据</div>';
+
+      // 按岗位
+      var pos = d.by_position || [];
+      $('pos-count').textContent = pos.length ? pos.length + ' 个岗位' : '—';
+      $('pos-body').innerHTML = pos.length ? (
+        '<table><thead><tr><th>岗位</th><th class="num">人数</th><th class="num">平均分</th></tr></thead><tbody>' +
+        pos.map(function(r){
+          return '<tr><td>' + escapeHtml(r.position || '-') + '</td>' +
+                 '<td class="num">' + r.n + '</td>' +
+                 '<td class="num">' + fmtScore(r.avg_score) + '</td></tr>';
+        }).join('') + '</tbody></table>'
+      ) : '<div class="empty">暂无数据</div>';
+    }
+
+    // ---- 事件 ----
+    $('btn-query').addEventListener('click', loadDashboard);
+    $('btn-reset').addEventListener('click', function(){ $('filter-period').value=''; loadDashboard(); });
+    $('btn-refresh').addEventListener('click', loadDashboard);
+    $('btn-logout').addEventListener('click', function(){
+      fetch('/auth/logout', { method:'POST', credentials:'same-origin' })
+        .then(function(){ window.location.href = 'index.html'; });
+    });
+
+    // ---- 启动:探测会话 ----
+    fetchJson('/auth/me').then(function(res){
+      if (!res.ok) { window.location.href = 'index.html'; return; }
+      state.user = res.body.user || res.body;
+      $('user-info').textContent = (state.user.name || '') + ' (' + (state.user.account || '') + ')';
+      loadDashboard();
+    }).catch(function(){ window.location.href = 'index.html'; });
+  })();
+  </script>
+</body>
+</html>

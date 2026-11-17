@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>奖惩管理 · 环卫 AI 平台</title>
+  <style>
+    :root {
+      --primary: #1677ff; --primary-bg: #e6f4ff; --success: #52c41a;
+      --warning: #faad14; --danger: #ff4d4f; --border: #d9d9d9;
+      --text-primary: #000000e0; --text-secondary: #00000073;
+      --bg-page: #f5f5f5; --bg-white: #fff; --radius: 8px;
+      --shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI',
+                   'PingFang SC', 'Microsoft YaHei', sans-serif;
+      font-size:14px; color:var(--text-primary); background:var(--bg-page);
+      line-height:1.5714; padding-bottom:40px;
+    }
+    .header {
+      background:var(--bg-white); border-bottom:1px solid var(--border);
+      padding:16px 24px; display:flex; justify-content:space-between;
+      align-items:center; box-shadow:var(--shadow); position:sticky; top:0; z-index:10;
+    }
+    .header h1 { font-size:18px; font-weight:600; }
+    .header .user { color:var(--text-secondary); font-size:13px; margin-top:4px; }
+    .header .actions { display:flex; gap:12px; align-items:center; }
+    .btn {
+      padding:6px 14px; border:1px solid var(--border); background:var(--bg-white);
+      border-radius:var(--radius); cursor:pointer; font-size:13px; transition:all 0.2s;
+    }
+    .btn:hover { border-color:var(--primary); color:var(--primary); }
+    .btn-primary { background:var(--primary); color:#fff; border-color:var(--primary); }
+    .btn-primary:hover { background:#4096ff; color:#fff; }
+    .btn:disabled { background:#9ca3af; cursor:not-allowed; border-color:#d9d9d9; }
+    .container { max-width:1100px; margin:24px auto; padding:0 24px; }
+
+    .form-card {
+      background:var(--bg-white); border-radius:var(--radius);
+      box-shadow:var(--shadow); padding:20px; margin-bottom:20px;
+    }
+    .form-card h2 { font-size:16px; font-weight:600; margin-bottom:16px; }
+    .form-grid {
+      display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));
+      gap:16px;
+    }
+    .field { display:flex; flex-direction:column; gap:6px; }
+    .field label { font-size:12px; color:var(--text-secondary); font-weight:500; }
+    .field input, .field select {
+      padding:7px 10px; border:1px solid var(--border); border-radius:var(--radius);
+      font-size:13px; background:#fff;
+    }
+    .field input:focus, .field select:focus { outline:none; border-color:var(--primary); }
+    .field.reason { grid-column:1 / -1; }
+    .form-actions { margin-top:16px; display:flex; gap:12px; }
+    .hint { font-size:12px; color:var(--text-secondary); margin-top:8px; }
+
+    .filter-bar {
+      background:var(--bg-white); border-radius:var(--radius);
+      padding:16px 20px; box-shadow:var(--shadow);
+      display:flex; gap:16px; flex-wrap:wrap; align-items:flex-end; margin-bottom:20px;
+    }
+    .filter-group { display:flex; flex-direction:column; gap:6px; }
+    .filter-group label { font-size:12px; color:var(--text-secondary); font-weight:500; }
+    .filter-group input, .filter-group select {
+      padding:6px 10px; border:1px solid var(--border); border-radius:var(--radius);
+      font-size:13px; background:#fff; min-width:140px;
+    }
+
+    .table-card {
+      background:var(--bg-white); border-radius:var(--radius);
+      box-shadow:var(--shadow); overflow:hidden;
+    }
+    .table-card .title {
+      padding:14px 20px; border-bottom:1px solid var(--border);
+      font-weight:600; display:flex; justify-content:space-between; align-items:center;
+    }
+    .table-card .title .count { color:var(--text-secondary); font-weight:400; font-size:13px; }
+    table { width:100%; border-collapse:collapse; }
+    th, td {
+      padding:10px 16px; text-align:left; border-bottom:1px solid #f0f0f0; font-size:13px;
+    }
+    th {
+      background:#fafafa; font-weight:600; font-size:12px;
+      color:var(--text-secondary); text-transform:uppercase;
+    }
+    tbody tr:hover { background:#fafafa; }
+    tbody tr:last-child td { border-bottom:none; }
+    td.num { text-align:right; font-variant-numeric:tabular-nums; }
+    .tag {
+      display:inline-block; padding:2px 8px; border-radius:4px;
+      font-size:11px; font-weight:600;
+    }
+    .tag-success { background:#f6ffed; color:var(--success); }
+    .tag-danger { background:#fff2f0; color:var(--danger); }
+
+    .pager {
+      padding:14px 20px; display:flex; justify-content:space-between; align-items:center;
+      border-top:1px solid var(--border); font-size:13px; color:var(--text-secondary);
+    }
+    .pager .btn { padding:4px 12px; }
+
+    .empty { padding:40px; text-align:center; color:var(--text-secondary); }
+    .loading { padding:20px; text-align:center; color:var(--text-secondary); }
+    .error {
+      background:#fff2f0; border:1px solid #ffccc7; color:var(--danger);
+      padding:12px 20px; border-radius:var(--radius); margin-bottom:16px;
+    }
+    .toast {
+      position:fixed; top:16px; right:16px; padding:10px 16px; border-radius:6px;
+      color:#fff; font-size:13px; opacity:0; transition:opacity .3s; z-index:20;
+    }
+    .toast.show { opacity:1; }
+    .toast.ok { background:var(--success); }
+    .toast.err { background:var(--danger); }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div>
+      <h1>奖惩管理</h1>
+      <div class="user" id="user-info"></div>
+    </div>
+    <div class="actions">
+      <button class="btn" id="btn-refresh">刷新</button>
+      <button class="btn" id="btn-logout">退出登录</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <div id="error-bar"></div>
+
+    <!-- 录入表单 -->
+    <div class="form-card">
+      <h2>录入奖惩</h2>
+      <div class="form-grid">
+        <div class="field">
+          <label>员工工号</label>
+          <input type="number" id="f-emp" placeholder="如 5002" />
+        </div>
+        <div class="field">
+          <label>类型</label>
+          <select id="f-type">
+            <option value="reward">奖励</option>
+            <option value="penalty">处罚</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>分值</label>
+          <input type="number" id="f-score" placeholder="奖励正分 / 处罚负分" />
+        </div>
+        <div class="field">
+          <label>日期</label>
+          <input type="date" id="f-date" />
+        </div>
+        <div class="field reason">
+          <label>原因</label>
+          <input type="text" id="f-reason" placeholder="奖惩事由" />
+        </div>
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-primary" id="btn-submit">录入</button>
+      </div>
+      <div class="hint">奖励需正分,处罚需负分;分值需为整数。录入后即时入库,审批人记录为当前账号。</div>
+    </div>
+
+    <!-- 筛选条 -->
+    <div class="filter-bar">
+      <div class="filter-group">
+        <label>员工工号</label>
+        <input type="number" id="q-emp" placeholder="精确匹配" />
+      </div>
+      <div class="filter-group">
+        <label>类型</label>
+        <select id="q-type">
+          <option value="">全部</option>
+          <option value="reward">奖励</option>
+          <option value="penalty">处罚</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>日期</label>
+        <input type="date" id="q-date" />
+      </div>
+      <div class="filter-group">
+        <label>周期(YYYY-MM)</label>
+        <input type="text" id="q-period" placeholder="按月份前缀" />
+      </div>
+      <button class="btn btn-primary" id="btn-query">查询</button>
+      <button class="btn" id="btn-reset">重置</button>
+    </div>
+
+    <!-- 列表 -->
+    <div class="table-card">
+      <div class="title">
+        <span>奖惩记录</span>
+        <span class="count" id="table-count">—</span>
+      </div>
+      <div id="table-body"></div>
+      <div class="pager" id="pager"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+  (function(){
+    'use strict';
+    var $ = function(id){ return document.getElementById(id); };
+    var state = { user: null, page:1, limit:50, total:0, pages:1 };
+
+    function fetchJson(url, opts) {
+      opts = opts || {};
+      opts.credentials = 'same-origin';
+      return fetch(url, opts).then(function(r){
+        return r.json().then(function(b){ return { ok: r.ok, status: r.status, body: b }; });
+      });
+    }
+    function showError(msg){ $('error-bar').innerHTML = '<div class="error">' + escapeHtml(msg) + '</div>'; }
+    function clearError(){ $('error-bar').innerHTML = ''; }
+    function escapeHtml(s){
+      return String(s==null?'':s).replace(/[&<>"]/g, function(c){
+        return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];
+      });
+    }
+    function toast(msg, ok){
+      var t = $('toast');
+      t.textContent = msg;
+      t.className = 'toast show ' + (ok ? 'ok' : 'err');
+      setTimeout(function(){ t.className = 'toast'; }, 2200);
+    }
+    function today(){ return new Date().toISOString().slice(0,10); }
+
+    function typeTag(type){
+      return type === 'reward'
+        ? '<span class="tag tag-success">奖励</span>'
+        : '<span class="tag tag-danger">处罚</span>';
+    }
+
+    // ---- 录入 ----
+    function submitReward() {
+      clearError();
+      var emp = $('f-emp').value.trim();
+      var type = $('f-type').value;
+      var score = $('f-score').value.trim();
+      var date = $('f-date').value;
+      var reason = $('f-reason').value.trim();
+
+      if (!emp) { toast('请填写员工工号', false); return; }
+      if (!score) { toast('请填写分值', false); return; }
+      var scoreNum = Number(score);
+      if (!Number.isInteger(scoreNum)) { toast('分值需为整数', false); return; }
+      if (type === 'reward' && scoreNum <= 0) { toast('奖励需正分', false); return; }
+      if (type === 'penalty' && scoreNum >= 0) { toast('处罚需负分', false); return; }
+      if (!date) { toast('请选择日期', false); return; }
+
+      var btn = $('btn-submit');
+      btn.disabled = true;
+      fetchJson('/performance/rewards', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          employee_id: emp, type: type, score: scoreNum, reason: reason || null, date: date
+        })
+      }).then(function(res){
+        btn.disabled = false;
+        if (!res.ok) { toast(res.body.error || '录入失败', false); return; }
+        toast('录入成功', true);
+        $('f-emp').value=''; $('f-score').value=''; $('f-reason').value='';
+        loadList(1);
+      }).catch(function(e){
+        btn.disabled = false;
+        toast('录入失败:' + e.message, false);
+      });
+    }
+
+    // ---- 列表 ----
+    function loadList(page) {
+      clearError();
+      if (page) state.page = page;
+      var params = ['page=' + state.page, 'limit=' + state.limit];
+      var emp = $('q-emp').value.trim();
+      var type = $('q-type').value;
+      var date = $('q-date').value;
+      var period = $('q-period').value.trim();
+      if (emp) params.push('employee_id=' + encodeURIComponent(emp));
+      if (type) params.push('type=' + encodeURIComponent(type));
+      if (date) params.push('date=' + encodeURIComponent(date));
+      if (period) params.push('period=' + encodeURIComponent(period));
+
+      $('table-body').innerHTML = '<div class="loading">加载中…</div>';
+      fetchJson('/performance/rewards?' + params.join('&')).then(function(res){
+        if (!res.ok) throw new Error(res.body.error || '加载奖惩列表失败');
+        renderList(res.body);
+      }).catch(function(e){
+        showError(e.message);
+        $('table-body').innerHTML = '<div class="empty">加载失败</div>';
+        $('table-count').textContent = '—';
+        $('pager').innerHTML = '';
+      });
+    }
+
+    function renderList(d) {
+      state.total = d.total || 0;
+      state.pages = d.pages || 1;
+      state.page = d.page || 1;
+      $('table-count').textContent = d.total + ' 条';
+
+      var items = d.items || [];
+      $('table-body').innerHTML = items.length ? (
+        '<table><thead><tr>' +
+        '<th>员工</th><th>类型</th><th class="num">分值</th><th>原因</th>' +
+        '<th>日期</th><th>审批人</th><th>录入时间</th>' +
+        '</tr></thead><tbody>' +
+        items.map(function(r){
+          return '<tr>' +
+            '<td>' + escapeHtml(r.emp_name || '-') + ' <span class="meta">(' + r.employee_id + ')</span></td>' +
+            '<td>' + typeTag(r.type) + '</td>' +
+            '<td class="num">' + r.score + '</td>' +
+            '<td>' + escapeHtml(r.reason || '-') + '</td>' +
+            '<td>' + escapeHtml(r.date || '-') + '</td>' +
+            '<td>' + escapeHtml(r.approved_by || '-') + '</td>' +
+            '<td>' + escapeHtml(r.created_at || '-') + '</td>' +
+            '</tr>';
+        }).join('') + '</tbody></table>'
+      ) : '<div class="empty">暂无数据</div>';
+
+      // 分页
+      var pager = $('pager');
+      if (state.pages <= 1) {
+        pager.innerHTML = '<span>共 ' + state.total + ' 条</span><span>第 ' + state.page + ' / ' + state.pages + ' 页</span>';
+        return;
+      }
+      pager.innerHTML =
+        '<span>共 ' + state.total + ' 条</span>' +
+        '<span>' +
+        '<button class="btn" id="btn-prev"' + (state.page<=1?' disabled':'') + '>上一页</button> ' +
+        '第 ' + state.page + ' / ' + state.pages + ' 页 ' +
+        '<button class="btn" id="btn-next"' + (state.page>=state.pages?' disabled':'') + '>下一页</button>' +
+        '</span>';
+      var prev = $('btn-prev'); if (prev) prev.addEventListener('click', function(){ loadList(state.page - 1); });
+      var next = $('btn-next'); if (next) next.addEventListener('click', function(){ loadList(state.page + 1); });
+    }
+
+    // ---- 事件 ----
+    $('btn-submit').addEventListener('click', submitReward);
+    $('btn-query').addEventListener('click', function(){ loadList(1); });
+    $('btn-reset').addEventListener('click', function(){
+      $('q-emp').value=''; $('q-type').value=''; $('q-date').value=''; $('q-period').value='';
+      loadList(1);
+    });
+    $('btn-refresh').addEventListener('click', function(){ loadList(state.page); });
+    $('btn-logout').addEventListener('click', function(){
+      fetch('/auth/logout', { method:'POST', credentials:'same-origin' })
+        .then(function(){ window.location.href = 'index.html'; });
+    });
+
+    // ---- 启动 ----
+    fetchJson('/auth/me').then(function(res){
+      if (!res.ok) { window.location.href = 'index.html'; return; }
+      state.user = res.body.user || res.body;
+      $('user-info').textContent = (state.user.name || '') + ' (' + (state.user.account || '') + ')';
+      $('f-date').value = today();
+      loadList(1);
+    }).catch(function(){ window.location.href = 'index.html'; });
+  })();
+  </script>
+</body>
+</html>

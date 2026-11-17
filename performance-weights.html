@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>权重配置 · 环卫 AI 平台</title>
+  <style>
+    :root {
+      --primary: #1677ff; --primary-bg: #e6f4ff; --success: #52c41a;
+      --warning: #faad14; --danger: #ff4d4f; --border: #d9d9d9;
+      --text-primary: #000000e0; --text-secondary: #00000073;
+      --bg-page: #f5f5f5; --bg-white: #fff; --radius: 8px;
+      --shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI',
+                   'PingFang SC', 'Microsoft YaHei', sans-serif;
+      font-size:14px; color:var(--text-primary); background:var(--bg-page);
+      line-height:1.5714; padding-bottom:40px;
+    }
+    .header {
+      background:var(--bg-white); border-bottom:1px solid var(--border);
+      padding:16px 24px; display:flex; justify-content:space-between;
+      align-items:center; box-shadow:var(--shadow); position:sticky; top:0; z-index:10;
+    }
+    .header h1 { font-size:18px; font-weight:600; }
+    .header .user { color:var(--text-secondary); font-size:13px; margin-top:4px; }
+    .header .actions { display:flex; gap:12px; align-items:center; }
+    .btn {
+      padding:6px 14px; border:1px solid var(--border); background:var(--bg-white);
+      border-radius:var(--radius); cursor:pointer; font-size:13px; transition:all 0.2s;
+    }
+    .btn:hover { border-color:var(--primary); color:var(--primary); }
+    .btn-primary { background:var(--primary); color:#fff; border-color:var(--primary); }
+    .btn-primary:hover { background:#4096ff; color:#fff; }
+    .btn:disabled { background:#9ca3af; cursor:not-allowed; border-color:#d9d9d9; }
+    .container { max-width:1100px; margin:24px auto; padding:0 24px; }
+
+    .note {
+      background:var(--primary-bg); border:1px solid #91caff; color:#0958d9;
+      padding:10px 16px; border-radius:var(--radius); margin-bottom:16px; font-size:13px;
+    }
+    .note b { color:#0958d9; }
+
+    .table-card {
+      background:var(--bg-white); border-radius:var(--radius);
+      box-shadow:var(--shadow); overflow:hidden;
+    }
+    .table-card .title {
+      padding:14px 20px; border-bottom:1px solid var(--border);
+      font-weight:600; display:flex; justify-content:space-between; align-items:center;
+    }
+    table { width:100%; border-collapse:collapse; }
+    th, td {
+      padding:10px 16px; text-align:left; border-bottom:1px solid #f0f0f0; font-size:13px;
+    }
+    th {
+      background:#fafafa; font-weight:600; font-size:12px;
+      color:var(--text-secondary); text-transform:uppercase;
+    }
+    tbody tr:hover { background:#fafafa; }
+    tbody tr:last-child td { border-bottom:none; }
+
+    td input {
+      width:70px; padding:5px 8px; border:1px solid var(--border);
+      border-radius:6px; font-size:13px; text-align:right; background:#fff;
+    }
+    td input:focus { outline:none; border-color:var(--primary); }
+    td input.deferred { background:#f5f5f5; color:var(--text-secondary); }
+    .pos-cell { font-weight:600; white-space:nowrap; }
+    .sum-cell { text-align:right; font-variant-numeric:tabular-nums; }
+    .sum-cell .ok { color:var(--success); font-weight:600; }
+    .sum-cell .bad { color:var(--danger); font-weight:600; }
+    .meta { color:var(--text-secondary); font-size:12px; white-space:nowrap; }
+
+    .empty { padding:40px; text-align:center; color:var(--text-secondary); }
+    .loading { padding:20px; text-align:center; color:var(--text-secondary); }
+    .error {
+      background:#fff2f0; border:1px solid #ffccc7; color:var(--danger);
+      padding:12px 20px; border-radius:var(--radius); margin-bottom:16px;
+    }
+    .toast {
+      position:fixed; top:16px; right:16px; padding:10px 16px; border-radius:6px;
+      color:#fff; font-size:13px; opacity:0; transition:opacity .3s; z-index:20;
+    }
+    .toast.show { opacity:1; }
+    .toast.ok { background:var(--success); }
+    .toast.err { background:var(--danger); }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div>
+      <h1>权重配置</h1>
+      <div class="user" id="user-info"></div>
+    </div>
+    <div class="actions">
+      <button class="btn" id="btn-refresh">刷新</button>
+      <button class="btn" id="btn-logout">退出登录</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <div id="error-bar"></div>
+    <div class="note">
+      岗位权重和需为 <b>100</b>。维度:出勤 / 质量 / 任务 / 安全(已启用,参与计算);协作(暂缓,仅占位)。
+      保存即时生效,引擎按配置表优先读取。
+    </div>
+
+    <div class="table-card">
+      <div class="title">岗位权重画像</div>
+      <div id="table-body"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+  (function(){
+    'use strict';
+    var $ = function(id){ return document.getElementById(id); };
+    var state = { user: null, positions: [], meta: {} };
+    var DIMENSIONS = ['attendance','quality','task','safety','collaboration'];
+    var DIM_LABEL = {
+      attendance:'出勤', quality:'质量', task:'任务',
+      safety:'安全', collaboration:'协作'
+    };
+    var DEFERRED = ['collaboration'];
+
+    function fetchJson(url, opts) {
+      opts = opts || {};
+      opts.credentials = 'same-origin';
+      return fetch(url, opts).then(function(r){
+        return r.json().then(function(b){ return { ok: r.ok, status: r.status, body: b }; });
+      });
+    }
+    function showError(msg){ $('error-bar').innerHTML = '<div class="error">' + escapeHtml(msg) + '</div>'; }
+    function clearError(){ $('error-bar').innerHTML = ''; }
+    function escapeHtml(s){
+      return String(s==null?'':s).replace(/[&<>"]/g, function(c){
+        return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];
+      });
+    }
+    function toast(msg, ok){
+      var t = $('toast');
+      t.textContent = msg;
+      t.className = 'toast show ' + (ok ? 'ok' : 'err');
+      setTimeout(function(){ t.className = 'toast'; }, 2200);
+    }
+    function sumOf(w){
+      return DIMENSIONS.reduce(function(s,d){ return s + (Number(w[d])||0); }, 0);
+    }
+
+    // ---- 加载权重画像 + 配置元信息 ----
+    function loadAll() {
+      clearError();
+      $('table-body').innerHTML = '<div class="loading">加载中…</div>';
+      Promise.all([
+        fetchJson('/performance/weights'),
+        fetchJson('/performance/weight-config')
+      ]).then(function(res){
+        if (!res[0].ok) throw new Error(res[0].body.error || '加载权重失败');
+        var items = res[0].body.items || [];
+        state.positions = items;
+        state.meta = {};
+        (res[1].body.items || []).forEach(function(c){ state.meta[c.position] = c; });
+        renderTable();
+      }).catch(function(e){
+        showError(e.message);
+        $('table-body').innerHTML = '<div class="empty">加载失败</div>';
+      });
+    }
+
+    function renderTable() {
+      $('table-body').innerHTML =
+        '<table><thead><tr>' +
+        '<th>岗位</th>' +
+        DIMENSIONS.map(function(d){ return '<th>' + DIM_LABEL[d] + '</th>'; }).join('') +
+        '<th class="sum-cell">权重和</th><th>修改人 / 时间</th><th>操作</th>' +
+        '</tr></thead><tbody>' +
+        state.positions.map(function(item, idx){
+          var w = item.weights || {};
+          var inputs = DIMENSIONS.map(function(d){
+            var cls = DEFERRED.indexOf(d) >= 0 ? ' class="deferred"' : '';
+            var val = w[d] != null ? w[d] : 0;
+            return '<td><input type="number" min="0" data-idx="' + idx + '" data-dim="' + d + '" value="' + val + '"' + cls + ' /></td>';
+          }).join('');
+          var meta = state.meta[item.position];
+          var metaHtml = meta
+            ? escapeHtml(meta.updated_by || '-') + ' / ' + escapeHtml(meta.updated_at || '-')
+            : '<span class="meta">未配置(回退默认)</span>';
+          return '<tr>' +
+            '<td class="pos-cell">' + escapeHtml(item.position) + '</td>' +
+            inputs +
+            '<td class="sum-cell" id="sum-' + idx + '"></td>' +
+            '<td class="meta">' + metaHtml + '</td>' +
+            '<td><button class="btn btn-primary" data-save="' + idx + '">保存</button></td>' +
+            '</tr>';
+        }).join('') +
+        '</tbody></table>';
+
+      // 绑定输入框变化 → 实时校验权重和
+      var inputs = $('table-body').querySelectorAll('input[type="number"]');
+      for (var i = 0; i < inputs.length; i++) {
+        inputs[i].addEventListener('input', function(e){
+          var idx = Number(e.target.getAttribute('data-idx'));
+          updateSum(idx);
+        });
+      }
+      // 绑定保存按钮
+      var btns = $('table-body').querySelectorAll('button[data-save]');
+      for (var j = 0; j < btns.length; j++) {
+        btns[j].addEventListener('click', function(e){
+          var idx = Number(e.target.getAttribute('data-save'));
+          savePosition(idx);
+        });
+      }
+      // 初始渲染权重和
+      state.positions.forEach(function(_, idx){ updateSum(idx); });
+    }
+
+    function readWeights(idx) {
+      var w = {};
+      var inputs = $('table-body').querySelectorAll('input[data-idx="' + idx + '"]');
+      for (var i = 0; i < inputs.length; i++) {
+        w[inputs[i].getAttribute('data-dim')] = Number(inputs[i].value);
+      }
+      return w;
+    }
+
+    function updateSum(idx) {
+      var w = readWeights(idx);
+      var sum = sumOf(w);
+      var cell = $('sum-' + idx);
+      if (!cell) return;
+      cell.innerHTML = '<span class="' + (sum === 100 ? 'ok' : 'bad') + '">' + sum + '</span>';
+    }
+
+    function savePosition(idx) {
+      var item = state.positions[idx];
+      var w = readWeights(idx);
+      var err = validateLocal(w);
+      if (err) { toast(err, false); return; }
+      var btn = $('table-body').querySelector('button[data-save="' + idx + '"]');
+      btn.disabled = true;
+      fetchJson('/performance/weights/' + encodeURIComponent(item.position), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ weights: w })
+      }).then(function(res){
+        btn.disabled = false;
+        if (!res.ok) { toast(res.body.error || '保存失败', false); return; }
+        toast('已保存:' + item.position, true);
+        loadAll();
+      }).catch(function(e){
+        btn.disabled = false;
+        toast('保存失败:' + e.message, false);
+      });
+    }
+
+    function validateLocal(w) {
+      for (var i = 0; i < DIMENSIONS.length; i++) {
+        var d = DIMENSIONS[i];
+        var v = w[d];
+        if (typeof v !== 'number' || isNaN(v) || v < 0) return DIM_LABEL[d] + '需为非负数';
+      }
+      var sum = sumOf(w);
+      if (sum !== 100) return '权重和需为 100,当前 ' + sum;
+      return null;
+    }
+
+    // ---- 事件 ----
+    $('btn-refresh').addEventListener('click', loadAll);
+    $('btn-logout').addEventListener('click', function(){
+      fetch('/auth/logout', { method:'POST', credentials:'same-origin' })
+        .then(function(){ window.location.href = 'index.html'; });
+    });
+
+    // ---- 启动 ----
+    fetchJson('/auth/me').then(function(res){
+      if (!res.ok) { window.location.href = 'index.html'; return; }
+      state.user = res.body.user || res.body;
+      $('user-info').textContent = (state.user.name || '') + ' (' + (state.user.account || '') + ')';
+      loadAll();
+    }).catch(function(){ window.location.href = 'index.html'; });
+  })();
+  </script>
+</body>
+</html>
