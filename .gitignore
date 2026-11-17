@@ -3,10 +3,7 @@ node_modules/
 server/node_modules/
 
 # SQLite 数据库(运行时数据,不入库)
-server/data/*.db
-server/data/*.db-journal
-server/data/*.db-wal
-server/data/*.db-shm
+server/data/
 *.db.bak
 
 # 日志
