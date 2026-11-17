@@ -163,7 +163,7 @@ function savePerformanceRecord(db, result, { status = 'draft', comment = null, c
 
 function getPerformanceRecord(db, empId, period) {
   return db.prepare(
-    `SELECT id, employee_id, period, period_type, scores_json, weights_json, total_score, grade, status, comment, comment_by, created_at
+    `SELECT id, employee_id, period, period_type, scores_json, weights_json, total_score, grade, status, comment, comment_by, created_at, confirmed_at
        FROM performance_record
       WHERE employee_id = ? AND period = ? AND period_type = 'monthly'`
   ).get(empId, period);

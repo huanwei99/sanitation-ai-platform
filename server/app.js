@@ -16,6 +16,7 @@ const { registerRequisitionRoutes } = require('./requisition');
 const { registerInboundRoutes } = require('./inbound');
 const { registerRentalRoutes } = require('./rental');
 const { registerReportRoutes } = require('./reports');
+const { registerPerformanceRoutes } = require('./performance-routes');
 
 async function buildApp(opts = {}) {
   let fastify;
@@ -99,6 +100,9 @@ async function buildApp(opts = {}) {
 
   // ---- 报表(P1-T04):流水/低库存/发放统计 ----
   await registerReportRoutes(fastify);
+
+  // ---- 绩效(P2-T01):权重/计算/落库/查询 ----
+  await registerPerformanceRoutes(fastify);
 
   // ---- 静态文件托管(同源方案,替代后续 Caddy 直接 serve) ----
   // Phase-0 架构要求:生产环境由 Caddy 托管静态文件,
