@@ -27,9 +27,80 @@ function gradeOf(total) {
   return 'D';
 }
 
-// 取岗位权重;未知岗位回退保洁员(§十.6 口径)
-function getWeightProfile(position) {
+// 取岗位权重:优先读配置表(P2-T02 权重可配),无配置行/无 db 时回退常量;
+// 未知岗位回退保洁员(§十.6 口径)。
+function getWeightProfile(position, db = null) {
+  if (db) {
+    const row = db.prepare(
+      'SELECT weights_json FROM performance_weight_config WHERE position = ?'
+    ).get(position);
+    if (row) {
+      try {
+        const w = JSON.parse(row.weights_json);
+        if (w && typeof w === 'object') return w;
+      } catch {
+        // 配置损坏回退常量
+      }
+    }
+  }
   return WEIGHT_PROFILES[position] || WEIGHT_PROFILES['保洁员'];
+}
+
+// ---------- 权重配置管理(P2-T02) ----------
+
+// 校验权重对象:5 维度全在、非负数、权重和=100(§十.2 口径)
+function validateWeights(weights) {
+  if (!weights || typeof weights !== 'object' || Array.isArray(weights)) {
+    return 'weights 需为 JSON 对象';
+  }
+  for (const d of DIMENSIONS) {
+    if (!(d in weights)) return `weights 缺少维度 ${d}`;
+    if (typeof weights[d] !== 'number' || Number.isNaN(weights[d]) || weights[d] < 0) {
+      return `weights.${d} 需为非负数`;
+    }
+  }
+  const sum = DIMENSIONS.reduce((s, d) => s + weights[d], 0);
+  if (sum !== 100) return `权重和需为 100,当前 ${sum}`;
+  return null;
+}
+
+function getWeightConfig(db, position) {
+  const row = db.prepare(
+    'SELECT position, weights_json, updated_by, updated_at FROM performance_weight_config WHERE position = ?'
+  ).get(position);
+  if (!row) return null;
+  return {
+    position: row.position,
+    weights: JSON.parse(row.weights_json),
+    updated_by: row.updated_by,
+    updated_at: row.updated_at
+  };
+}
+
+function listWeightConfigs(db) {
+  return db.prepare(
+    'SELECT position, weights_json, updated_by, updated_at FROM performance_weight_config ORDER BY position'
+  ).all().map(row => ({
+    position: row.position,
+    weights: JSON.parse(row.weights_json),
+    updated_by: row.updated_by,
+    updated_at: row.updated_at
+  }));
+}
+
+// 写入/更新岗位权重配置(PUT 语义)
+function upsertWeightConfig(db, position, weights, updatedBy = null) {
+  const err = validateWeights(weights);
+  if (err) throw new Error(err);
+  db.prepare(
+    `INSERT INTO performance_weight_config (position, weights_json, updated_by)
+     VALUES (?,?,?)
+     ON CONFLICT(position) DO UPDATE SET
+       weights_json = excluded.weights_json,
+       updated_by = excluded.updated_by,
+       updated_at = CURRENT_TIMESTAMP`
+  ).run(position, JSON.stringify(weights), updatedBy);
+  return getWeightConfig(db, position);
 }
 
 // 周期前缀:period 形如 '2026-10',匹配 YYYY-MM-DD 日期
@@ -112,7 +183,7 @@ function calculatePerformance(db, empId, period) {
   ).get(empId);
   if (!emp) throw new Error(`员工不存在: ${empId}`);
 
-  const weights = getWeightProfile(emp.position);
+  const weights = getWeightProfile(emp.position, db);
   const scores = {
     attendance: calcAttendance(db, empId, period),
     quality: calcQuality(db, empId, period),
@@ -163,16 +234,38 @@ function savePerformanceRecord(db, result, { status = 'draft', comment = null, c
 
 function getPerformanceRecord(db, empId, period) {
   return db.prepare(
-    `SELECT id, employee_id, period, period_type, scores_json, weights_json, total_score, grade, status, comment, comment_by, created_at, confirmed_at
+    `SELECT id, employee_id, period, period_type, scores_json, weights_json, total_score, grade, status, comment, comment_by, created_at, confirmed_at,
+            appeal_decision, appeal_note, appeal_decided_by, appeal_decided_at
        FROM performance_record
       WHERE employee_id = ? AND period = ? AND period_type = 'monthly'`
   ).get(empId, period);
 }
 
+// ---------- 申诉裁决(P2-T02:申诉可提交 → 有权限主体裁决) ----------
+
+// 裁决申诉:仅 status='appealed' 且裁决待决(appeal_decision='pending' 或未裁决)可裁决
+// decision: upheld(维持)/overturned(撤销)
+function decideAppeal(db, empId, period, { decision, note, decidedBy }) {
+  if (!['upheld', 'overturned'].includes(decision)) {
+    throw new Error('decision 需为 upheld/overturned');
+  }
+  const row = getPerformanceRecord(db, empId, period);
+  if (!row) throw new Error('考核记录不存在');
+  if (row.status !== 'appealed') throw new Error('仅申诉状态记录可裁决');
+  db.prepare(
+    `UPDATE performance_record
+        SET appeal_decision = ?, appeal_note = ?, appeal_decided_by = ?, appeal_decided_at = CURRENT_TIMESTAMP
+      WHERE employee_id = ? AND period = ? AND period_type = 'monthly'`
+  ).run(decision, note || null, decidedBy || null, empId, period);
+  return getPerformanceRecord(db, empId, period);
+}
+
 module.exports = {
   WEIGHT_PROFILES, DIMENSIONS, ACTIVE_DIMENSIONS, DEFERRED_DIMENSIONS,
-  gradeOf, getWeightProfile,
+  gradeOf, getWeightProfile, validateWeights,
+  getWeightConfig, listWeightConfigs, upsertWeightConfig,
   calcAttendance, calcQuality, calcTask, calcSafety,
   calculatePerformance,
-  savePerformanceRecord, getPerformanceRecord, newRecordId
+  savePerformanceRecord, getPerformanceRecord, newRecordId,
+  decideAppeal
 };
