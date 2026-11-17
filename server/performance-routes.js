@@ -218,16 +218,25 @@ async function registerPerformanceRoutes(app) {
     if (!row) {
       return reply.code(404).send({ ok: false, error: '考核记录不存在' });
     }
+    const emp = app.db.prepare(
+      'SELECT name, position, department FROM employees WHERE employee_id = ?'
+    ).get(empId);
     return reply.send({
       ok: true,
       record: {
-        id: row.id, employee_id: row.employee_id, period: row.period,
+        id: row.id, employee_id: row.employee_id,
+        emp_name: emp ? emp.name : null,
+        position: emp ? emp.position : null,
+        department: emp ? emp.department : null,
+        period: row.period,
         period_type: row.period_type,
         scores: JSON.parse(row.scores_json),
         weights: JSON.parse(row.weights_json),
         total_score: row.total_score, grade: row.grade,
         status: row.status, comment: row.comment, comment_by: row.comment_by,
-        created_at: row.created_at, confirmed_at: row.confirmed_at
+        created_at: row.created_at, confirmed_at: row.confirmed_at,
+        appeal_decision: row.appeal_decision, appeal_note: row.appeal_note,
+        appeal_decided_by: row.appeal_decided_by, appeal_decided_at: row.appeal_decided_at
       }
     });
   });

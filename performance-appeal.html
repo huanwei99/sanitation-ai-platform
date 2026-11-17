@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>申诉管理 · 环卫 AI 平台</title>
+  <style>
+    :root {
+      --primary: #1677ff; --primary-bg: #e6f4ff; --success: #52c41a;
+      --warning: #faad14; --danger: #ff4d4f; --border: #d9d9d9;
+      --text-primary: #000000e0; --text-secondary: #00000073;
+      --bg-page: #f5f5f5; --bg-white: #fff; --radius: 8px;
+      --shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI',
+                   'PingFang SC', 'Microsoft YaHei', sans-serif;
+      font-size:14px; color:var(--text-primary); background:var(--bg-page);
+      line-height:1.5714; padding-bottom:40px;
+    }
+    .header {
+      background:var(--bg-white); border-bottom:1px solid var(--border);
+      padding:16px 24px; display:flex; justify-content:space-between;
+      align-items:center; box-shadow:var(--shadow); position:sticky; top:0; z-index:10;
+    }
+    .header h1 { font-size:18px; font-weight:600; }
+    .header .user { color:var(--text-secondary); font-size:13px; margin-top:4px; }
+    .header .actions { display:flex; gap:12px; align-items:center; }
+    .btn {
+      padding:6px 14px; border:1px solid var(--border); background:var(--bg-white);
+      border-radius:var(--radius); cursor:pointer; font-size:13px; transition:all 0.2s;
+    }
+    .btn:hover { border-color:var(--primary); color:var(--primary); }
+    .btn-primary { background:var(--primary); color:#fff; border-color:var(--primary); }
+    .btn-primary:hover { background:#4096ff; color:#fff; }
+    .btn:disabled { background:#9ca3af; cursor:not-allowed; border-color:#d9d9d9; }
+    .btn-sm { padding:3px 10px; font-size:12px; }
+    .container { max-width:1200px; margin:24px auto; padding:0 24px; }
+
+    .flow-card {
+      background:var(--bg-white); border-radius:var(--radius);
+      box-shadow:var(--shadow); padding:16px 20px; margin-bottom:20px;
+      font-size:13px; color:var(--text-secondary);
+    }
+    .flow-card b { color:var(--text-primary); }
+    .flow-card .steps { margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .flow-card .step { padding:3px 10px; border-radius:4px; background:var(--primary-bg); color:var(--primary); font-weight:600; font-size:12px; }
+    .flow-card .arrow { color:var(--text-secondary); }
+
+    .filter-bar {
+      background:var(--bg-white); border-radius:var(--radius);
+      padding:16px 20px; box-shadow:var(--shadow);
+      display:flex; gap:16px; flex-wrap:wrap; align-items:flex-end; margin-bottom:20px;
+    }
+    .filter-group { display:flex; flex-direction:column; gap:6px; }
+    .filter-group label { font-size:12px; color:var(--text-secondary); font-weight:500; }
+    .filter-group input, .filter-group select {
+      padding:6px 10px; border:1px solid var(--border); border-radius:var(--radius);
+      font-size:13px; background:#fff; min-width:140px;
+    }
+
+    .table-card {
+      background:var(--bg-white); border-radius:var(--radius);
+      box-shadow:var(--shadow); overflow:hidden;
+    }
+    .table-card .title {
+      padding:14px 20px; border-bottom:1px solid var(--border);
+      font-weight:600; display:flex; justify-content:space-between; align-items:center;
+    }
+    .table-card .title .count { color:var(--text-secondary); font-weight:400; font-size:13px; }
+    table { width:100%; border-collapse:collapse; }
+    th, td {
+      padding:10px 16px; text-align:left; border-bottom:1px solid #f0f0f0; font-size:13px;
+    }
+    th {
+      background:#fafafa; font-weight:600; font-size:12px;
+      color:var(--text-secondary); text-transform:uppercase;
+    }
+    tbody tr:hover { background:#fafafa; }
+    tbody tr:last-child td { border-bottom:none; }
+    td.num { text-align:right; font-variant-numeric:tabular-nums; }
+    td .meta { color:var(--text-secondary); font-size:12px; }
+    td.actions { white-space:nowrap; }
+    td.actions .btn { margin-right:4px; }
+    .tag {
+      display:inline-block; padding:2px 8px; border-radius:4px;
+      font-size:11px; font-weight:600;
+    }
+    .tag-primary { background:#e6f4ff; color:var(--primary); }
+    .tag-success { background:#f6ffed; color:var(--success); }
+    .tag-danger { background:#fff2f0; color:var(--danger); }
+    .tag-warning { background:#fffbe6; color:var(--warning); }
+    .tag-default { background:#f5f5f5; color:var(--text-secondary); }
+
+    .pager {
+      padding:14px 20px; display:flex; justify-content:space-between; align-items:center;
+      border-top:1px solid var(--border); font-size:13px; color:var(--text-secondary);
+    }
+    .pager .btn { padding:4px 12px; }
+
+    .empty { padding:40px; text-align:center; color:var(--text-secondary); }
+    .loading { padding:20px; text-align:center; color:var(--text-secondary); }
+    .error {
+      background:#fff2f0; border:1px solid #ffccc7; color:var(--danger);
+      padding:12px 20px; border-radius:var(--radius); margin-bottom:16px;
+    }
+
+    .modal-overlay {
+      position:fixed; inset:0; background:rgba(0,0,0,0.45);
+      display:flex; align-items:center; justify-content:center; z-index:30;
+    }
+    .modal-card {
+      background:#fff; border-radius:8px; width:520px; max-width:92vw;
+      max-height:85vh; overflow:auto; box-shadow:0 6px 24px rgba(0,0,0,0.2);
+    }
+    .modal-title { padding:16px 20px; border-bottom:1px solid var(--border); font-weight:600; font-size:15px; }
+    .modal-body { padding:20px; }
+    .modal-actions { padding:14px 20px; border-top:1px solid var(--border); display:flex; justify-content:flex-end; gap:12px; }
+    .modal-body .field { margin-bottom:14px; display:flex; flex-direction:column; gap:6px; }
+    .modal-body .field label { font-size:12px; color:var(--text-secondary); font-weight:500; }
+    .modal-body textarea {
+      width:100%; min-height:84px; padding:8px 10px; border:1px solid var(--border);
+      border-radius:6px; font-size:13px; font-family:inherit; resize:vertical; background:#fff;
+    }
+    .modal-body textarea:focus, .modal-body select:focus { outline:none; border-color:var(--primary); }
+    .modal-body select { padding:7px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px; background:#fff; }
+    .detail-grid { display:grid; grid-template-columns:90px 1fr; gap:8px 12px; font-size:13px; }
+    .detail-grid .lbl { color:var(--text-secondary); }
+    .detail-grid .val { font-variant-numeric:tabular-nums; word-break:break-all; }
+    .detail-sec { margin-top:18px; font-weight:600; font-size:13px; margin-bottom:8px; }
+    .score-row { display:flex; justify-content:space-between; padding:5px 0; border-bottom:1px dashed #f0f0f0; font-size:13px; }
+    .score-row .v { font-variant-numeric:tabular-nums; font-weight:600; }
+
+    .toast {
+      position:fixed; top:16px; right:16px; padding:10px 16px; border-radius:6px;
+      color:#fff; font-size:13px; opacity:0; transition:opacity .3s; z-index:40;
+    }
+    .toast.show { opacity:1; }
+    .toast.ok { background:var(--success); }
+    .toast.err { background:var(--danger); }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div>
+      <h1>申诉管理</h1>
+      <div class="user" id="user-info"></div>
+    </div>
+    <div class="actions">
+      <button class="btn" id="btn-refresh">刷新</button>
+      <button class="btn" id="btn-logout">退出登录</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <div id="error-bar"></div>
+
+    <div class="flow-card">
+      <b>申诉流程:</b> 评分确认 → 员工提交申诉 → 有权限主体裁决。
+      <div class="steps">
+        <span class="step">已确认</span><span class="arrow">→</span>
+        <span class="step">申诉中</span><span class="arrow">→</span>
+        <span class="step">裁决(维持 / 撤销)</span>
+      </div>
+      <div style="margin-top:6px;">仅「已确认」记录可提交申诉;仅「申诉中」且待裁决的记录可裁决。</div>
+    </div>
+
+    <!-- 筛选条 -->
+    <div class="filter-bar">
+      <div class="filter-group">
+        <label>员工工号</label>
+        <input type="number" id="q-emp" placeholder="精确匹配" />
+      </div>
+      <div class="filter-group">
+        <label>周期(YYYY-MM)</label>
+        <input type="text" id="q-period" placeholder="如 2026-10" />
+      </div>
+      <div class="filter-group">
+        <label>状态</label>
+        <select id="q-status">
+          <option value="">全部</option>
+          <option value="confirmed">已确认</option>
+          <option value="appealed">申诉中</option>
+        </select>
+      </div>
+      <button class="btn btn-primary" id="btn-query">查询</button>
+      <button class="btn" id="btn-reset">重置</button>
+    </div>
+
+    <!-- 列表 -->
+    <div class="table-card">
+      <div class="title">
+        <span>考核记录</span>
+        <span class="count" id="table-count">—</span>
+      </div>
+      <div id="table-body"></div>
+      <div class="pager" id="pager"></div>
+    </div>
+  </div>
+
+  <!-- 模态 -->
+  <div class="modal-overlay" id="modal-overlay" style="display:none">
+    <div class="modal-card">
+      <div class="modal-title" id="modal-title"></div>
+      <div class="modal-body" id="modal-body"></div>
+      <div class="modal-actions">
+        <button class="btn" id="modal-cancel">取消</button>
+        <button class="btn btn-primary" id="modal-ok">确认</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+  (function(){
+    'use strict';
+    var $ = function(id){ return document.getElementById(id); };
+    var state = { user: null, page:1, limit:50, total:0, pages:1, modal:null };
+
+    function fetchJson(url, opts) {
+      opts = opts || {};
+      opts.credentials = 'same-origin';
+      return fetch(url, opts).then(function(r){
+        return r.json().then(function(b){ return { ok: r.ok, status: r.status, body: b }; });
+      });
+    }
+    function showError(msg){ $('error-bar').innerHTML = '<div class="error">' + escapeHtml(msg) + '</div>'; }
+    function clearError(){ $('error-bar').innerHTML = ''; }
+    function escapeHtml(s){
+      return String(s==null?'':s).replace(/[&<>"]/g, function(c){
+        return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];
+      });
+    }
+    function toast(msg, ok){
+      var t = $('toast');
+      t.textContent = msg;
+      t.className = 'toast show ' + (ok ? 'ok' : 'err');
+      setTimeout(function(){ t.className = 'toast'; }, 2200);
+    }
+
+    function gradeTag(g){
+      var map = { S:'tag-warning', A:'tag-success', B:'tag-primary', C:'tag-default', D:'tag-danger' };
+      return '<span class="tag ' + (map[g]||'tag-default') + '">' + escapeHtml(g) + '</span>';
+    }
+    function statusTag(s){
+      var map = { draft:'tag-default', confirmed:'tag-primary', appealed:'tag-warning' };
+      var label = { draft:'草稿', confirmed:'已确认', appealed:'申诉中' };
+      return '<span class="tag ' + (map[s]||'tag-default') + '">' + (label[s]||escapeHtml(s)) + '</span>';
+    }
+    function decisionTag(d){
+      if (!d) return '<span class="tag tag-default">—</span>';
+      var map = { pending:'tag-warning', upheld:'tag-danger', overturned:'tag-success' };
+      var label = { pending:'待裁决', upheld:'维持', overturned:'撤销' };
+      return '<span class="tag ' + (map[d]||'tag-default') + '">' + (label[d]||escapeHtml(d)) + '</span>';
+    }
+
+    // ---- 列表 ----
+    function loadList(page) {
+      clearError();
+      if (page) state.page = page;
+      var params = ['page=' + state.page, 'limit=' + state.limit];
+      var emp = $('q-emp').value.trim();
+      var period = $('q-period').value.trim();
+      var status = $('q-status').value;
+      if (emp) params.push('employee_id=' + encodeURIComponent(emp));
+      if (period) params.push('period=' + encodeURIComponent(period));
+      if (status) params.push('status=' + encodeURIComponent(status));
+
+      $('table-body').innerHTML = '<div class="loading">加载中…</div>';
+      fetchJson('/performance/records?' + params.join('&')).then(function(res){
+        if (!res.ok) throw new Error(res.body.error || '加载考核记录失败');
+        renderList(res.body);
+      }).catch(function(e){
+        showError(e.message);
+        $('table-body').innerHTML = '<div class="empty">加载失败</div>';
+        $('table-count').textContent = '—';
+        $('pager').innerHTML = '';
+      });
+    }
+
+    function renderList(d) {
+      state.total = d.total || 0;
+      state.pages = d.pages || 1;
+      state.page = d.page || 1;
+      $('table-count').textContent = d.total + ' 条';
+
+      var items = d.items || [];
+      $('table-body').innerHTML = items.length ? (
+        '<table><thead><tr>' +
+        '<th>员工</th><th>岗位</th><th>周期</th><th class="num">总分</th>' +
+        '<th>等级</th><th>状态</th><th>申诉裁决</th><th>操作</th>' +
+        '</tr></thead><tbody>' +
+        items.map(function(r){
+          var ops = '<button class="btn btn-sm" data-action="detail" data-emp="' + r.employee_id + '" data-period="' + escapeHtml(r.period) + '">详情</button>';
+          if (r.status === 'confirmed') {
+            ops += '<button class="btn btn-sm btn-primary" data-action="appeal" data-emp="' + r.employee_id + '" data-period="' + escapeHtml(r.period) + '">提交申诉</button>';
+          } else if (r.status === 'appealed' && r.appeal_decision !== 'upheld' && r.appeal_decision !== 'overturned') {
+            ops += '<button class="btn btn-sm btn-primary" data-action="decide" data-emp="' + r.employee_id + '" data-period="' + escapeHtml(r.period) + '">裁决</button>';
+          }
+          return '<tr>' +
+            '<td>' + escapeHtml(r.emp_name || '-') + ' <span class="meta">(' + r.employee_id + ')</span></td>' +
+            '<td>' + escapeHtml(r.position || '-') + '</td>' +
+            '<td>' + escapeHtml(r.period || '-') + '</td>' +
+            '<td class="num">' + r.total_score + '</td>' +
+            '<td>' + gradeTag(r.grade) + '</td>' +
+            '<td>' + statusTag(r.status) + '</td>' +
+            '<td>' + decisionTag(r.appeal_decision) + '</td>' +
+            '<td class="actions">' + ops + '</td>' +
+            '</tr>';
+        }).join('') + '</tbody></table>'
+      ) : '<div class="empty">暂无数据</div>';
+
+      var pager = $('pager');
+      if (state.pages <= 1) {
+        pager.innerHTML = '<span>共 ' + state.total + ' 条</span><span>第 ' + state.page + ' / ' + state.pages + ' 页</span>';
+        return;
+      }
+      pager.innerHTML =
+        '<span>共 ' + state.total + ' 条</span>' +
+        '<span>' +
+        '<button class="btn" id="btn-prev"' + (state.page<=1?' disabled':'') + '>上一页</button> ' +
+        '第 ' + state.page + ' / ' + state.pages + ' 页 ' +
+        '<button class="btn" id="btn-next"' + (state.page>=state.pages?' disabled':'') + '>下一页</button>' +
+        '</span>';
+      var prev = $('btn-prev'); if (prev) prev.addEventListener('click', function(){ loadList(state.page - 1); });
+      var next = $('btn-next'); if (next) next.addEventListener('click', function(){ loadList(state.page + 1); });
+    }
+
+    // ---- 模态 ----
+    function openModal(type, emp, period, record) {
+      state.modal = { type:type, emp:emp, period:period, record:record };
+      $('modal-title').textContent = type==='appeal' ? '提交申诉' : (type==='decide' ? '申诉裁决' : '考核记录详情');
+      var body = '';
+      if (type === 'appeal') {
+        body = '<div class="field"><label>申诉理由</label><textarea id="modal-input" placeholder="说明申诉原因,如评分异议、数据错误等"></textarea></div>';
+      } else if (type === 'decide') {
+        body =
+          '<div class="field"><label>裁决决定</label><select id="modal-decision">' +
+          '<option value="upheld">维持原评分</option>' +
+          '<option value="overturned">撤销(改判)</option></select></div>' +
+          '<div class="field"><label>裁决备注</label><textarea id="modal-note" placeholder="裁决说明(可选)"></textarea></div>';
+      } else {
+        body = renderDetail(record);
+      }
+      $('modal-body').innerHTML = body;
+      $('modal-overlay').style.display = 'flex';
+      $('modal-ok').style.display = type === 'detail' ? 'none' : 'inline-block';
+    }
+    function closeModal(){ $('modal-overlay').style.display='none'; state.modal=null; }
+
+    function renderDetail(r) {
+      var s = r.scores || {};
+      var dims = [['attendance','出勤'],['quality','质量'],['task','任务'],['safety','安全']];
+      var scoreRows = dims.map(function(pair){
+        var d = s[pair[0]];
+        return '<div class="score-row"><span>' + pair[1] + '</span><span class="v">' + (d?d.score:'-') + '</span></div>';
+      }).join('');
+      var collab = s.collaboration;
+      if (collab === null || collab === undefined) {
+        scoreRows += '<div class="score-row"><span>协作</span><span class="v" style="color:var(--text-secondary)">暂缓</span></div>';
+      }
+      var w = r.weights || {};
+      var weightRows = Object.keys(w).map(function(k){
+        return '<div class="score-row"><span>' + escapeHtml(k) + '</span><span class="v">' + w[k] + '</span></div>';
+      }).join('');
+      var decisionLine = '—';
+      if (r.appeal_decision) {
+        var label = { pending:'待裁决', upheld:'维持', overturned:'撤销' }[r.appeal_decision] || r.appeal_decision;
+        decisionLine = label + (r.appeal_note ? '(' + r.appeal_note + ')' : '');
+      }
+      return '<div class="detail-grid">' +
+        '<div class="lbl">员工</div><div class="val">' + escapeHtml(r.emp_name||'-') + ' (' + r.employee_id + ')</div>' +
+        '<div class="lbl">岗位/部门</div><div class="val">' + escapeHtml(r.position||'-') + ' / ' + escapeHtml(r.department||'-') + '</div>' +
+        '<div class="lbl">周期</div><div class="val">' + escapeHtml(r.period||'-') + '</div>' +
+        '<div class="lbl">总分/等级</div><div class="val">' + r.total_score + ' ' + gradeTag(r.grade) + '</div>' +
+        '<div class="lbl">状态</div><div class="val">' + statusTag(r.status) + '</div>' +
+        '<div class="lbl">申诉裁决</div><div class="val">' + escapeHtml(decisionLine) + '</div>' +
+        '<div class="lbl">裁决人/时间</div><div class="val">' + escapeHtml(r.appeal_decided_by||'-') + ' / ' + escapeHtml(r.appeal_decided_at||'-') + '</div>' +
+        '<div class="lbl">确认时间</div><div class="val">' + escapeHtml(r.confirmed_at||'-') + '</div>' +
+        '</div>' +
+        '<div class="detail-sec">维度得分</div>' + scoreRows +
+        '<div class="detail-sec">岗位权重</div>' + weightRows;
+    }
+
+    // ---- 提交申诉 ----
+    function submitAppeal() {
+      var m = state.modal;
+      var comment = $('modal-input').value.trim();
+      if (!comment) { toast('请填写申诉理由', false); return; }
+      var ok = $('modal-ok'); ok.disabled = true;
+      fetchJson('/performance/records', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          employee_id: m.emp, period: m.period, status: 'appealed',
+          comment: comment, comment_by: state.user.account || null
+        })
+      }).then(function(res){
+        ok.disabled = false;
+        if (!res.ok) { toast(res.body.error || '提交申诉失败', false); return; }
+        toast('申诉已提交', true);
+        closeModal();
+        loadList(state.page);
+      }).catch(function(e){
+        ok.disabled = false;
+        toast('提交失败:' + e.message, false);
+      });
+    }
+
+    // ---- 裁决 ----
+    function submitDecide() {
+      var m = state.modal;
+      var decision = $('modal-decision').value;
+      var note = $('modal-note').value.trim();
+      var ok = $('modal-ok'); ok.disabled = true;
+      fetchJson('/performance/records/' + m.emp + '/' + encodeURIComponent(m.period) + '/appeal-decision', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision: decision, note: note || null })
+      }).then(function(res){
+        ok.disabled = false;
+        if (!res.ok) { toast(res.body.error || '裁决失败', false); return; }
+        toast(decision === 'upheld' ? '已维持原评分' : '已撤销(改判)', true);
+        closeModal();
+        loadList(state.page);
+      }).catch(function(e){
+        ok.disabled = false;
+        toast('裁决失败:' + e.message, false);
+      });
+    }
+
+    // ---- 事件 ----
+    $('table-body').addEventListener('click', function(e){
+      var btn = e.target.closest('[data-action]');
+      if (!btn) return;
+      var action = btn.getAttribute('data-action');
+      var emp = btn.getAttribute('data-emp');
+      var period = btn.getAttribute('data-period');
+      if (action === 'detail') {
+        fetchJson('/performance/records/' + emp + '/' + encodeURIComponent(period)).then(function(res){
+          if (!res.ok) { toast(res.body.error || '加载详情失败', false); return; }
+          openModal('detail', emp, period, res.body.record);
+        }).catch(function(e){ toast('加载详情失败:' + e.message, false); });
+      } else if (action === 'appeal') {
+        openModal('appeal', emp, period);
+      } else if (action === 'decide') {
+        openModal('decide', emp, period);
+      }
+    });
+    $('modal-cancel').addEventListener('click', closeModal);
+    $('modal-ok').addEventListener('click', function(){
+      var t = state.modal && state.modal.type;
+      if (t === 'appeal') submitAppeal();
+      else if (t === 'decide') submitDecide();
+      else closeModal();
+    });
+    $('btn-query').addEventListener('click', function(){ loadList(1); });
+    $('btn-reset').addEventListener('click', function(){
+      $('q-emp').value=''; $('q-period').value=''; $('q-status').value='';
+      loadList(1);
+    });
+    $('btn-refresh').addEventListener('click', function(){ loadList(state.page); });
+    $('btn-logout').addEventListener('click', function(){
+      fetch('/auth/logout', { method:'POST', credentials:'same-origin' })
+        .then(function(){ window.location.href = 'index.html'; });
+    });
+
+    // ---- 启动 ----
+    fetchJson('/auth/me').then(function(res){
+      if (!res.ok) { window.location.href = 'index.html'; return; }
+      state.user = res.body.user || res.body;
+      $('user-info').textContent = (state.user.name || '') + ' (' + (state.user.account || '') + ')';
+      loadList(1);
+    }).catch(function(){ window.location.href = 'index.html'; });
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>评分导出 · 环卫 AI 平台</title>
+  <style>
+    :root {
+      --primary: #1677ff; --primary-bg: #e6f4ff; --success: #52c41a;
+      --warning: #faad14; --danger: #ff4d4f; --border: #d9d9d9;
+      --text-primary: #000000e0; --text-secondary: #00000073;
+      --bg-page: #f5f5f5; --bg-white: #fff; --radius: 8px;
+      --shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI',
+                   'PingFang SC', 'Microsoft YaHei', sans-serif;
+      font-size:14px; color:var(--text-primary); background:var(--bg-page);
+      line-height:1.5714; padding-bottom:40px;
+    }
+    .header {
+      background:var(--bg-white); border-bottom:1px solid var(--border);
+      padding:16px 24px; display:flex; justify-content:space-between;
+      align-items:center; box-shadow:var(--shadow); position:sticky; top:0; z-index:10;
+    }
+    .header h1 { font-size:18px; font-weight:600; }
+    .header .user { color:var(--text-secondary); font-size:13px; margin-top:4px; }
+    .header .actions { display:flex; gap:12px; align-items:center; }
+    .btn {
+      padding:6px 14px; border:1px solid var(--border); background:var(--bg-white);
+      border-radius:var(--radius); cursor:pointer; font-size:13px; transition:all 0.2s;
+    }
+    .btn:hover { border-color:var(--primary); color:var(--primary); }
+    .btn-primary { background:var(--primary); color:#fff; border-color:var(--primary); }
+    .btn-primary:hover { background:#4096ff; color:#fff; }
+    .btn:disabled { background:#9ca3af; cursor:not-allowed; border-color:#d9d9d9; }
+    .btn-lg { padding:8px 20px; font-size:14px; }
+    .container { max-width:1100px; margin:24px auto; padding:0 24px; }
+
+    .form-card {
+      background:var(--bg-white); border-radius:var(--radius);
+      box-shadow:var(--shadow); padding:20px; margin-bottom:20px;
+    }
+    .form-card h2 { font-size:16px; font-weight:600; margin-bottom:12px; }
+    .form-card .desc { font-size:13px; color:var(--text-secondary); margin-bottom:10px; }
+    .field-list { display:grid; grid-template-columns:repeat(auto-fit, minmax(160px,1fr)); gap:8px; font-size:13px; }
+    .field-list .f { background:#fafafa; padding:6px 10px; border-radius:6px; color:var(--text-secondary); }
+    .field-list .f b { color:var(--text-primary); font-weight:600; }
+
+    .filter-bar {
+      background:var(--bg-white); border-radius:var(--radius);
+      padding:16px 20px; box-shadow:var(--shadow);
+      display:flex; gap:16px; flex-wrap:wrap; align-items:flex-end; margin-bottom:20px;
+    }
+    .filter-group { display:flex; flex-direction:column; gap:6px; }
+    .filter-group label { font-size:12px; color:var(--text-secondary); font-weight:500; }
+    .filter-group input, .filter-group select {
+      padding:6px 10px; border:1px solid var(--border); border-radius:var(--radius);
+      font-size:13px; background:#fff; min-width:140px;
+    }
+
+    .stat-card {
+      background:var(--bg-white); border-radius:var(--radius); box-shadow:var(--shadow);
+      padding:20px 24px; display:flex; justify-content:space-between; align-items:center;
+    }
+    .stat-card .label { color:var(--text-secondary); font-size:13px; }
+    .stat-card .num { font-size:24px; font-weight:600; color:var(--primary); font-variant-numeric:tabular-nums; }
+
+    .empty { padding:40px; text-align:center; color:var(--text-secondary); }
+    .loading { padding:20px; text-align:center; color:var(--text-secondary); }
+    .error {
+      background:#fff2f0; border:1px solid #ffccc7; color:var(--danger);
+      padding:12px 20px; border-radius:var(--radius); margin-bottom:16px;
+    }
+    .toast {
+      position:fixed; top:16px; right:16px; padding:10px 16px; border-radius:6px;
+      color:#fff; font-size:13px; opacity:0; transition:opacity .3s; z-index:20;
+    }
+    .toast.show { opacity:1; }
+    .toast.ok { background:var(--success); }
+    .toast.err { background:var(--danger); }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div>
+      <h1>评分导出</h1>
+      <div class="user" id="user-info"></div>
+    </div>
+    <div class="actions">
+      <button class="btn" id="btn-refresh">刷新</button>
+      <button class="btn" id="btn-logout">退出登录</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <div id="error-bar"></div>
+
+    <div class="form-card">
+      <h2>导出说明</h2>
+      <div class="desc">按当前筛选条件导出考核记录为 CSV 文件(UTF-8 BOM,可直接用 Excel 打开)。导出受筛选条件约束,不传条件则导出全部。</div>
+      <div class="field-list">
+        <div class="f"><b>员工工号</b></div>
+        <div class="f"><b>姓名</b></div>
+        <div class="f"><b>岗位</b></div>
+        <div class="f"><b>部门</b></div>
+        <div class="f"><b>周期</b></div>
+        <div class="f"><b>总分</b></div>
+        <div class="f"><b>等级</b></div>
+        <div class="f"><b>状态</b></div>
+      </div>
+    </div>
+
+    <!-- 筛选条 -->
+    <div class="filter-bar">
+      <div class="filter-group">
+        <label>员工工号</label>
+        <input type="number" id="q-emp" placeholder="精确匹配" />
+      </div>
+      <div class="filter-group">
+        <label>周期(YYYY-MM)</label>
+        <input type="text" id="q-period" placeholder="如 2026-10" />
+      </div>
+      <div class="filter-group">
+        <label>状态</label>
+        <select id="q-status">
+          <option value="">全部</option>
+          <option value="draft">草稿</option>
+          <option value="confirmed">已确认</option>
+          <option value="appealed">申诉中</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>等级</label>
+        <select id="q-grade">
+          <option value="">全部</option>
+          <option value="S">S</option>
+          <option value="A">A</option>
+          <option value="B">B</option>
+          <option value="C">C</option>
+          <option value="D">D</option>
+        </select>
+      </div>
+      <button class="btn btn-primary btn-lg" id="btn-export">导出 CSV</button>
+      <button class="btn" id="btn-reset">重置</button>
+    </div>
+
+    <!-- 统计 -->
+    <div class="stat-card">
+      <div class="label">当前筛选条件下记录数</div>
+      <div class="num" id="stat-num">—</div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+  (function(){
+    'use strict';
+    var $ = function(id){ return document.getElementById(id); };
+    var state = { user: null };
+
+    function fetchJson(url, opts) {
+      opts = opts || {};
+      opts.credentials = 'same-origin';
+      return fetch(url, opts).then(function(r){
+        return r.json().then(function(b){ return { ok: r.ok, status: r.status, body: b }; });
+      });
+    }
+    function showError(msg){ $('error-bar').innerHTML = '<div class="error">' + escapeHtml(msg) + '</div>'; }
+    function clearError(){ $('error-bar').innerHTML = ''; }
+    function escapeHtml(s){
+      return String(s==null?'':s).replace(/[&<>"]/g, function(c){
+        return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];
+      });
+    }
+    function toast(msg, ok){
+      var t = $('toast');
+      t.textContent = msg;
+      t.className = 'toast show ' + (ok ? 'ok' : 'err');
+      setTimeout(function(){ t.className = 'toast'; }, 2200);
+    }
+
+    function filterParams(extra) {
+      var p = [];
+      var emp = $('q-emp').value.trim();
+      var period = $('q-period').value.trim();
+      var status = $('q-status').value;
+      var grade = $('q-grade').value;
+      if (emp) p.push('employee_id=' + encodeURIComponent(emp));
+      if (period) p.push('period=' + encodeURIComponent(period));
+      if (status) p.push('status=' + encodeURIComponent(status));
+      if (grade) p.push('grade=' + encodeURIComponent(grade));
+      if (extra) p = p.concat(extra);
+      return p.join('&');
+    }
+
+    // ---- 统计 ----
+    function loadCount() {
+      clearError();
+      $('stat-num').textContent = '加载中…';
+      fetchJson('/performance/records?' + filterParams(['page=1', 'limit=1'])).then(function(res){
+        if (!res.ok) throw new Error(res.body.error || '统计失败');
+        $('stat-num').textContent = res.body.total || 0;
+      }).catch(function(e){
+        showError(e.message);
+        $('stat-num').textContent = '—';
+      });
+    }
+
+    // ---- 导出 ----
+    function exportCsv() {
+      clearError();
+      var qs = filterParams();
+      var url = '/performance/records/export' + (qs ? '?' + qs : '');
+      var btn = $('btn-export');
+      btn.disabled = true;
+      $('stat-num').textContent = '导出中…';
+      fetch(url, { credentials: 'same-origin' }).then(function(r){
+        if (!r.ok) {
+          return r.json().then(function(b){ throw new Error(b.error || '导出失败(HTTP ' + r.status + ')'); });
+        }
+        return r.blob();
+      }).then(function(blob){
+        var objUrl = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = objUrl;
+        a.download = 'performance_export.csv';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(objUrl);
+        toast('导出成功', true);
+        loadCount();
+      }).catch(function(e){
+        toast('导出失败:' + e.message, false);
+        showError('导出失败:' + e.message);
+        loadCount();
+      }).finally(function(){
+        btn.disabled = false;
+      });
+    }
+
+    // ---- 事件 ----
+    $('btn-export').addEventListener('click', exportCsv);
+    $('btn-query') && null;
+    $('btn-reset').addEventListener('click', function(){
+      $('q-emp').value=''; $('q-period').value=''; $('q-status').value=''; $('q-grade').value='';
+      loadCount();
+    });
+    $('btn-refresh').addEventListener('click', loadCount);
+    // 筛选条件变更时重新统计
+    ['q-emp','q-period','q-status','q-grade'].forEach(function(id){
+      $(id).addEventListener('change', loadCount);
+    });
+    $('btn-logout').addEventListener('click', function(){
+      fetch('/auth/logout', { method:'POST', credentials:'same-origin' })
+        .then(function(){ window.location.href = 'index.html'; });
+    });
+
+    // ---- 启动 ----
+    fetchJson('/auth/me').then(function(res){
+      if (!res.ok) { window.location.href = 'index.html'; return; }
+      state.user = res.body.user || res.body;
+      $('user-info').textContent = (state.user.name || '') + ' (' + (state.user.account || '') + ')';
+      loadCount();
+    }).catch(function(){ window.location.href = 'index.html'; });
+  })();
+  </script>
+</body>
+</html>
