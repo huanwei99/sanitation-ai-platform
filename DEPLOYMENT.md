@@ -157,7 +157,7 @@ cd server
 npm test
 ```
 
-应输出 server `137` pass + foundation `22` = **159 pass / 0 fail**。
+应输出 server `177` pass + foundation `22` = **199 pass / 0 fail**(2026-11-18 实测;计数随套件增长,权威以实跑 # tests 为准)。
 
 ### 6.2 健康检查
 

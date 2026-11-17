@@ -400,3 +400,57 @@ The quick-wins touched only docs / deletions of unreferenced frontend files — 
 
 ### 15.6 Verdict
 The two quick-wins the board claimed were the last **false-已交付** claims — and they are now true (executed, not just marked). With the count and status corrections, **DEMAND-POOL's §A/§B/§C/§E now match what `main` actually contains**, verified against the rebased `main` and a green 159-test run. The board is no longer under-crediting shipped work. Both of this session's deliverables are done: the board reconcile (now including the freshly-shipped P1-T07) and the three quick-wins (orphan `js/` deleted, root README + LICENSE added).
+
+---
+
+## 16. Verification round 4 — refreshed to `origin/main` `75449bb` (2026-11-18)
+
+Fast-forward only (no conflicts): `2958a2f..75449bb`, **9 new commits**. Local main == origin/main, clean tree.
+
+### 16.1 Test suite re-executed on `75449bb`
+| Suite | tests | pass | fail |
+|---|---|---|---|
+| server (`npm test`) | **177** | 177 | 0 |
+| foundation engine | 13 | 13 | 0 |
+| foundation sql | 9 | 9 | 0 |
+| **Total** | **199** | **199** | **0** |
+
+Suite grew from 159 → **199** (+40 server tests) on the strength of three new P2 modules. No regressions.
+
+### 16.2 What landed since round 3 (`2958a2f..75449bb`)
+| Commit | What shipped | Verified |
+|---|---|---|
+| `1e2e2fc` | **drill-console.html** — management-side demo console (create/approve/issue/transfer/sign/advance/audit/inventory, all click-driven) + 6 CDP screenshots + `console-transcript.json` | Files present; closes walkthrough prep item #4 |
+| `83c59af` | DEMAND-POOL: added P2-T02…05, P3-T01…03, P4-T01 planning rows | Board only |
+| `7f24905` | .gitignore: ignore `server/data/` (runtime SQLite) | Hygiene |
+| `1ab5993`+`be22322` | **P2-T01** performance scorecard engine + routes (migrations `011_performance.sql`, `012_performance_config.sql`) | `performance.js`/`p2-t01.test.js`/`performance-routes.test.js` present; 4-dim engine confirmed |
+| `4ad097c`+`b92d771`+`ee6606a` | **P2-T02** full performance module — backend weights/rewards/appeals/dashboard/export + 5 front-end pages (`performance-{dashboard,weights,rewards,appeal,export}.html`) | Files present |
+| `75449bb` | **P2-T03** snow-emergency command & dispatch — 5-stage state machine (alert→verified→activated→executing→resolved/cancelled) + mixed own/rented dispatch + battle-report engine (migration `013_emergency.sql` rebuilds `chain_event` with extended CHECK + 5 emergency tables; `emergency-command.html`; seed DRILL-COMMANDER 9005) | Files present |
+
+### 16.3 Plan-vs-actual: the headline of this round
+**The team shipped the entire P2 performance subsystem + snow-emergency command ~9–10 weeks ahead of the roadmap baseline.** `ROADMAP-EXECUTION-PLAN.md` still schedules:
+- **P2** (scorecard) for **2027-01-25 → 02-19** — **DONE on 2026-11-18** (T01+T02).
+- **P3** (snow-emergency simulator) checkpoint **2027-02-19** — the core is **DONE** (P2-T03).
+
+This is the *inverse* of the round-1/2 disease (over-claiming): the roadmap now **under-states** progress — its P2/P3 blocks describe future work that is already on `main`. The roadmap has not been updated to reflect the early P2/P3 delivery, so a reader of ROADMAP-EXECUTION-PLAN alone would wrongly conclude P2 is still ~2 months out. **Recommendation: update the roadmap's P2/P3 swimlane blocks to mark delivered, and re-baseline Gate-2 (scorecard reproducible from seed) as passed** — it is the stated Gate-2 exit and the engine now exists (`performance.js` + tests). This is a planning-doc staleness, not a code problem.
+
+### 16.4 Bookkeeping reconciled this round
+| Item | Was | Now | Evidence |
+|---|---|---|---|
+| **P2-T01 status** | §G row still 待认领 (new P2/P3/P4 table already ✅) — drift *within the same file* | **✅ 已交付** | `1ab5993`+`be22322`; engine + tests on disk |
+| **Pool tally** | "29 项 / 25 done / 4 open" | **37 项 / 28 done / 9 open** | recount incl. 7 new planning rows |
+| **Test counts** | 6 docs cited 159 (137 server) | **199 (177 server)** in DEMAND-POOL, DEPLOYMENT, DRILL-SCRIPT, overlap doc | suites re-run on `75449bb` |
+| **DR-SPRINT-TRACKING 159** | dated historical record ("2026-11-16 实测") | **Left as-is** — correct at its date; not rewritten | respecting dated evidence |
+
+> **Standing recommendation (still open, now 3 rounds running):** stop hard-coding test counts and statuses in prose. The count drifted 58 → 159 → 199 across four verification rounds. Link to the suite / derive from commit evidence, or this reconciliation becomes a permanent tax on every round.
+
+### 16.5 What is genuinely still open (verified)
+- **P0-T05 caveat** — "30-minute bring-up on a clean machine" **still never tested** (survives into P2 era). This is now the single oldest unverified operational claim and directly matters for the walkthrough bring-up.
+- **P0-T03 caveat** — front-end offline queue is localStorage, not the spec's IndexedDB (functional-equivalent per board).
+- **Walkthrough prep #5** — real non-developer runs DRILL-SCRIPT end-to-end: **🔴 未做** (freeze 11-26).
+- **Walkthrough prep #6** — real-phone same-LAN access: 🟡 on Daniel, first thing at the session.
+- **Demo console** — now ✅ done (`drill-console.html`), removing the round-3 walkthrough blocker. The management-side steps are click-driven; no more curl-in-front-of-user.
+- **Remaining planning backlog** (unclaimed, no owner): G-T01/02/03 (GTM, blocked on pilot list), P2-T04 (report charts), P2-T05 (approval-flow config), P3-T01/02/03, P4-T01.
+
+### 16.6 Verdict on the plan
+The plan is being executed **far ahead of schedule**: Dry-Run (§A) + P0 + P1 through Gate-1 (A-T1…A-T14) done, and now **P2-T01/T02/T03 done ~9–10 weeks early**. The recurring deficiency has flipped character again: it is no longer *over-claiming* (round 1) or *under-crediting* (rounds 2–3) so much as **roadmap under-statement** — the baseline plan says P2/P3 are months out while `main` already contains them. The one-tick-stale board pattern persists (P2-T01 ✅ in one table, 待认领 in another, same file). **Code and tests are healthy (199/199 green); the documentation-layer sync is the only recurring tax.** For the upcoming walkthrough: the blocker from round 3 (no demo console) is resolved; the remaining pre-session risk is the never-tested clean-machine bring-up (P0-T05) and the un-run real-person drill (#5).
