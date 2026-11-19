@@ -466,3 +466,31 @@ Evidence this round (code-level, not yet a full audit):
 **What this round did NOT do (honest scope limit):** a **full adversarial audit of the P2 modules** at the depth §10–§12 applied to P0/P1 — e.g. verifying the 5-stage emergency state machine against every illegal transition, P2 weight-config privilege boundaries, or battle-report idempotency under concurrency. The P2 tests passing is necessary but not sufficient evidence of P0/P1-grade rigor. **Recommendation: a focused round-5 audit scoped to P2** (state-machine legality matrix, P2 route RBAC matrix, concurrent dispatch/battle-report), to confirm the new tier meets the same bar rather than assuming it.
 
 Also note (P2-T01 status): the round-4 review read this file at §14 (HEAD `72c2174`) and DEMAND-POOL before `c67c6a6`; the **P2-T01 §G row it flagged as 待认领 is now 已交付** (`1ab5993`+`be22322`) as of the round-4 reconcile. The reviewer's broader thesis — status drifts from commits — remains the standing bookkeeping disease (now 4 rounds running).
+
+---
+
+## 17. Verification round 5 — no remote delta (`771f290`, 2026-11-19)
+
+### 17.1 Refresh result
+`git fetch` returned **zero new commits** since `771f290`; local main == origin/main, clean tree. **No code, schema, test, or doc changed** since round 4.1. Migrations still end at `013_emergency.sql`.
+
+### 17.2 Test suite re-confirmed (unchanged HEAD)
+| Suite | tests | pass | fail |
+|---|---|---|---|
+| server | 177 | 177 | 0 |
+| foundation engine | 13 | 13 | 0 |
+| foundation sql | 9 | 9 | 0 |
+| **Total** | **199** | **199** | **0** |
+
+Same as round 4 — expected, since HEAD is identical. No regressions.
+
+### 17.3 Plan check — the two time-sensitive items
+Today is **2026-11-19**. The walkthrough window (3–5 days from 11-18) is live, and the **11-26 freeze** is ~1 week out. Two walkthrough-prep items remain unresolved:
+- **#5 — real non-developer runs DRILL-SCRIPT end-to-end:** **🔴 still 未做.** This is the highest-value remaining pre-freeze task — it is the only step that has never been executed by anyone other than the agent that built it, and it is the actual acceptance gate for "a non-technical colleague can run the drill unblocked."
+- **#6 — real-phone same-LAN access:** 🟡 on Daniel, first thing at the session.
+
+### 17.4 The one outstanding recommendation (carried, not started)
+§16.7 recommended a **focused round-5 audit scoped to P2** (emergency state-machine legality matrix, P2 route RBAC matrix, concurrent dispatch/battle-report idempotency). **This round did NOT perform that audit** — it was a refresh-only round with no remote delta. The P2 rigor-parity question remains **open and unverified**; the 199-green suite shows P2 is *tested*, not that it has been *adversarially audited* to P0/P1 depth.
+
+### 17.5 Verdict
+Nothing changed on `main` this round; the code and suite are stable at 199/199. The plan's open surface is unchanged and is now **dominated by two non-code items**: the un-run real-person drill (#5, gating the 11-26 freeze) and the still-pending P2 rigor audit (§16.7). Both are verification/human-gate items, not build items — consistent with the project having moved from "can they build it" to "is it verified and will it survive contact with a real user."
