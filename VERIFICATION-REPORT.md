@@ -494,3 +494,68 @@ Today is **2026-11-19**. The walkthrough window (3–5 days from 11-18) is live,
 
 ### 17.5 Verdict
 Nothing changed on `main` this round; the code and suite are stable at 199/199. The plan's open surface is unchanged and is now **dominated by two non-code items**: the un-run real-person drill (#5, gating the 11-26 freeze) and the still-pending P2 rigor audit (§16.7). Both are verification/human-gate items, not build items — consistent with the project having moved from "can they build it" to "is it verified and will it survive contact with a real user."
+
+---
+
+## 18. Verification round 6 — P2 rigor-parity audit EXECUTED + schedule feasibility (2026-11-20)
+
+No remote delta since round 5 (`git fetch` → HEAD still `011bce1`; last code commit remains `75449bb`, 11-18). Per §16.7/§17.4, this round **executed the deferred P2 adversarial audit** (the 199-green suite shows P2 is *tested*; this round asks whether it meets P0/P1 rigor) and analyzed the schedule. Suite re-run on this HEAD: server **177/177**, engine 13/13, SQL 9/9 — **199/199 again.**
+
+### 18.1 The headline risk: 代签白名单 has NO team/depot scoping (anti-fraud regression)
+
+The §14.1 resolution of the self-only fork adopted proxy-whitelist sign-off, framed as "anti-fraud preserved as *attribution*." Code review of the implemented control (`distribution.js:436-448`) shows attribution is the **only** control:
+
+```js
+const proxyPositions = getPolicy(app.db, 'signoff.proxy_positions', '').split(',')...
+const whitelisted = proxyPositions.some(kw => pos.includes(kw));   // position-name match ONLY
+```
+
+- **Any** 班组长/车队长/队长 can proxy-sign for **any** employee in **any** depot — there is no check that the signer belongs to the recipient's team, depot, or distribution. A 车队长 from DP-002 can sign a DP-001 worker's receipt they had no part in.
+- The `commander`/`deputy` pattern in P2-T03 is equally decorative (see 18.3), but here it matters more: distribution sign-off feeds 履约 evidence and (via P2) attendance/performance data.
+- Mitigation that survives: the chain event records `received_by`/`signed_by`/`mode`, so a fraudulent proxy signature is *attributable* — but nothing distinguishes it from a legitimate one at verification time. The fraud scenario the original self-only control existed to prevent (a leader fabricating subordinate activity) is structurally possible again; only the *after-the-fact* trace remains.
+- **Risk framing:** acceptable for a closed pilot *if* Daniel accepts it explicitly; **not** acceptable to leave implicit. The natural fix is a scope predicate (`signer.team_id === recipient.team_id`, or depot match, configurable via `org_policy` like every other toggle — the schema already has `employees.team_id` and depot-scoped tables). Effort: small; decision: Daniel's, same class as the §12.4 fork.
+- Substring matching (`pos.includes(kw)`) also over-matches variants (e.g. "副队长" matches "队长") — minor, but the whitelist should match on exact position codes, not substrings.
+
+### 18.2 P2-T01/T02 performance subsystem operates entirely OUTSIDE the audit chain
+
+`grep recordEvent` across `performance.js`, `performance-routes.js`, and their tests → **zero hits**. Contrast: materials (P0/P1), inbound, rental, and emergency (P2-T03) all write `chain_event`. Concretely unchained:
+
+- **Weight-config changes** (`PUT /performance/weights/:position`) — the single most fraud-sensitive knob in a performance system (weights directly determine grades/pay) leave **no hash-chained evidence**. A rogue admin can change weights and revert them undetectably.
+- **Reward/penalty entries** and **appeal decisions** — likewise no chain events.
+- Partial mitigations verified: weight sum is validated (=100, 5 dimensions, non-negative); `performance_record` stores `scores_json` + `weights_json` snapshots, so a *stored* score is deterministically recomputable; the record state machine (draft→confirmed→appealed, 409 on silent overwrite) is correctly enforced server-side; raw `reward_penalty` rows have no UPDATE/DELETE code path (app layer).
+- Residual: the **source tables** (`attendance_record`, `reward_penalty`, `task_assignment`, `quality_check`) have **no append-only triggers** (A2 guards cover only `chain_event`/`stock_movement`) and no chain events — the inputs to every score are tamperable at the DB layer with no trace. For a system whose Gate-2 promise is "评分可从种子数据确定性复算," recomputation detects *inconsistency*, not *tampering of the inputs themselves*.
+- **Fix path:** `recordEvent` on weight-upsert / confirm / appeal-decision (3 call sites), plus consider extending append-only triggers to `reward_penalty` (and maybe `attendance_record`) — same pattern as 005, small migration.
+
+### 18.3 P2-T03 emergency module — parity gaps found (functionality real, rigor below P0/P1 bar)
+
+Code-level findings, in descending severity:
+
+1. **Dispatch lifecycle exists in schema but has no driver.** `emergency_dispatch.status` CHECK allows `assigned→in_progress→completed→released`, but **no endpoint advances it** — the only write path is creation, and `dispatch()` accepts a **client-supplied `status`** (`payload.status || 'assigned'`, `emergency.js:171,190`). A dispatcher can create a dispatch directly as `completed` or `released`, skipping the lifecycle; and once created, a row stays `assigned` forever. Battle reports consequently cannot distinguish committed work from paper assignments.
+2. **Chain-event atomicity is inconsistent.** `createEvent()` and `dispatch()` write the business row **outside** the transaction that writes the chain event (`emergency.js:71-81, 185-196`); a crash between the two leaves business rows with no `chain_event` (audit gap). `transition()` and `resolveEvent()` correctly wrap everything in one transaction. Contrast: P0/P1 `distribution.js` wraps deduct + movement + chain in a single transaction — the P0/P1 pattern, not the P2 one.
+3. **Equipment double-allocation guard is check-then-insert (TOCTOU).** `_assertNotInActiveEvent()` SELECTs then the INSERT happens outside a shared transaction (`emergency.js:154-163, 185-191`). With better-sqlite3's synchronous single connection this cannot interleave in-process (same caveat as A-T7), but the P0/P1 idiom is a guarded `UPDATE … WHERE` — the invariant here is enforced by hope, not by the data layer. Also: the guard ignores dispatch `status`, so a `released` resource inside an active event stays locked out of re-allocation until the event closes.
+4. **Commander designation is decorative.** `commander_id`/`deputy_commander_id` are stored and rendered in battle reports, but **no transition, cancel, or resolve checks them** — any holder of `emergency:edit`/`resolve` can cancel or resolve any event. Emergency permissions also pass `null` data-scope (org-wide by design; acceptable for a command function, but it should be stated, not silent).
+5. **Migration 013 is well-built** — verified: data-preserving rebuild (`INSERT … SELECT` keeps ids/hashes, so the chain doesn't break), transactional, both append-only triggers re-created after the rebuild (lines 60/67). All 17 event names the server writes are inside the new `CHECK` union (grepped and cross-checked) — no runtime landmine from current code. Residual: the CHECK makes future event names a migration duty (a new event type written by code without a CHECK update will fail at INSERT, on live boot).
+
+### 18.4 Schedule feasibility — the roadmap baseline is now decorative; the real critical path is non-engineering
+
+- **"9–10 weeks ahead" is true only against a fictional baseline.** P0 (est. 3 weeks), P1 (4 weeks), P2 (4 weeks incl. Spring-Festival buffer) all landed in ~4 calendar days (11-14 → 11-18) against effort estimates of M=3–5 person-days per task. Either the estimates were never grounded or rigor was traded for speed — §18.2/§18.3 show the latter happened exactly where one would expect (the newest tier). **Stop managing against ROADMAP dates for engineering; the dates no longer constrain anything.**
+- **Gate-DR Go/No-Go (11-27) exit criteria — real status:** ① non-developer runs DRILL-SCRIPT unblocked: **🔴 never done** (suggested 11-25, one day of buffer before freeze — a first-run friction with 50–65-year-old users plus the *new* 代管 flow makes a slip likely; no contingency exists because v1.1 assumed P0 would start 11-30, which has been overtaken); ② self-only on phone: **superseded** by the 代管 decision — the drill and walkthrough deck must validate the *proxy-whitelist* 口径, and the tracking board still flags this 🟠 as unconfirmed; ③ stock/chain consistency: ✅ (199 green incl. A-T7/A-T10/A-T14); ④ tests green: ✅. **Net: 2 of 4 criteria are unproven 7 days before the gate.**
+- **Still never verified operationally:** "30 分钟跑起来 on a clean machine" (`DEPLOYMENT.md:5`) — the 11-16 backup drill was stop-server→delete-db→restore on an *existing* machine; a fresh-machine bring-up (Node ≥22.5 requirement, Caddy, service registration) has never been attempted. This is the walkthrough's day-zero risk.
+- **The decision date is infeasible without the pilot, and the pilot has not started to exist.** Everything engineering-critical is done; the only remaining input to Go/No-Go (2027-03-26) is pilot-trial feedback (active users, sign-in rate, chain completeness) from a pilot scheduled to start **2027-01-25**, gated on Daniel's 试点名单 (trigger **2027-01-08**). §F (G-T01/02/03: terms, training script, demo) is **all 待认领 with zero work started**. If the 名单 slips past 01-08, 03-26 has no data to decide on — the roadmap's own "不阻塞干跑/P0/P1" caveat is now obsolete because the pilot is the *only* remaining blocker. **The single highest-leverage schedule action available today is Daniel producing the pilot 名单 — not any code.**
+- **Bookkeeping disease, round 6 confirmation:** DEMAND-POOL's own tally line is internally inconsistent — it sums to **30 rows** but its done+open counts (22+9) = **31**, and the planning-table enumeration names 8 rows (P2-T02…05 = 4, P3×3, P4×1) where the section sum says 7. Fifth consecutive round of count drift (58→159→199→tally off-by-one). The standing recommendation hardens from "recommend" to **"required before Gate-DR": derive the tally from the file itself or delete the tally line.**
+
+### 18.5 Risk register (new/updated this round)
+
+| # | Risk | Severity | Owner | Earliest fix |
+|---|---|---|---|---|
+| R-1 | 代签白名单无 team/depot 范围 — any whitelisted position can proxy-sign anyone | **High** (fraud exposure in the 履约 chain) | Daniel (policy) + team (code) | 1 org_policy predicate + 1 test |
+| R-2 | Performance subsystem unchained (weights/rewards/appeals leave no hash evidence) | **High** for P2's own selling point | Team | 3 recordEvent call sites |
+| R-3 | Gate-DR criteria ① (real-person drill) and ② (代管口径) unproven 7 days before freeze | **High** (gate integrity) | Daniel + drill candidate | 11-25 rehearsal |
+| R-4 | Pilot 名单 absent; §F zero-start; 03-26 decision has no feedback source if 01-08 slips | **High** (decision infeasibility) | Daniel | today |
+| R-5 | Emergency dispatch lifecycle driverless + client-settable status; chain-atomicity gap in createEvent/dispatch | Medium | Team | small route + tx fix |
+| R-6 | Clean-machine bring-up never attempted (walkthrough day-zero risk) | Medium | Team/Daniel | 1 rehearsal hour |
+| R-7 | Emergency commander field decorative; TOCTOU double-allocation; 013 CHECK makes future event names migration-gated | Low-Med | Team | backlog |
+| R-8 | Tally off-by-one (5th round of count drift) | Low (credibility tax) | Team | delete the tally |
+
+### 18.6 Verdict
+The 199-green suite is real and the engineering pace is genuinely exceptional — but this round's audit shows the **P2 tier did not inherit the P0/P1 rigor bar** (unchained performance domain, driverless dispatch lifecycle, non-atomic chain writes, decorative commander), and the 代管 resolution shipped **without the scoping constraint that gives proxy sign-off its anti-fraud meaning**. None of these block the pilot technically; all of them are cheap to fix relative to what they protect. The binding constraints on the roadmap are now entirely human: the 11-25 real-person drill, the 11-26 freeze, and above all the pilot 名单 — the only artifact whose absence makes the 2027-03-26 decision date infeasible no matter how far ahead the code is.
